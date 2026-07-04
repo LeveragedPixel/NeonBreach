@@ -13,6 +13,10 @@
   canvas { background:#05060e; display:block; touch-action:none; }
   #vignette { position:absolute; inset:0; pointer-events:none; opacity:0;
     box-shadow: inset 0 0 120px 40px rgba(255,40,60,0.8); transition:opacity .08s; }
+  #fade { position:absolute; inset:0; pointer-events:none; z-index:15; opacity:0;
+    background:#04050a; transition:opacity .55s ease; }
+  #fade.show { opacity:1; }
+  #fade .flash { position:absolute; inset:0; opacity:0; }
   #hud { position:absolute; top:12px; left:12px; font-size:13px; line-height:1.6;
     text-shadow:0 0 8px #000; pointer-events:none; z-index:5; letter-spacing:.5px; }
   #hud .big { font-size:22px; font-weight:700; color:#eaf6ff; text-shadow:0 0 12px #37c6ff; }
@@ -46,6 +50,7 @@
   /* HUB / LAUNCH SCREEN */
   #hub { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
     background:radial-gradient(circle at 50% 35%, #0a1428 0%, #04050a 70%); z-index:20; text-align:center; padding:20px; overflow-y:auto; }
+  #codex { z-index:30; background:#04050a; }
   #hub h1 { font-size:52px; font-weight:800; letter-spacing:6px; color:#eaf6ff;
     text-shadow:0 0 30px #37c6ff, 0 0 60px #37c6ff; margin-bottom:2px; }
   #hub .tag { color:#6fe9ff; letter-spacing:3px; font-size:13px; margin-bottom:20px; text-transform:uppercase; }
@@ -68,6 +73,7 @@
 <div id="wrap"><div id="stage">
   <canvas id="game"></canvas>
   <div id="vignette"></div>
+  <div id="fade"></div>
   <div id="xpbar"><div id="xpfill"></div></div>
   <div id="hud">
     <div class="big" id="timer">0:00</div>
@@ -81,8 +87,9 @@
   <div id="help">WASD / Arrows to move &nbsp;•&nbsp; SPACE to dash &nbsp;•&nbsp; ESC to pause</div>
 
   <div id="levelup" class="overlay">
-    <h2>LEVEL UP</h2><div class="sub">Choose one</div>
+    <h2>LEVEL UP</h2><div class="sub">Choose one &nbsp;·&nbsp; <span id="luCores" style="color:#ffe14f">◆ 0</span></div>
     <div id="cards"></div>
+    <button id="rerollBtn" onclick="rerollUpgrades()" class="ghost" style="margin-top:18px;font-size:14px">🔄 Reroll — 5 ◆</button>
   </div>
   <div id="over" class="overlay">
     <h1>SIGNAL LOST</h1><p id="overstats"></p>
@@ -92,6 +99,13 @@
     <h1 id="winTitle">SECTOR CLEARED</h1><p id="winstats"></p>
     <div><button id="nextBtn" onclick="nextLevel()">Next Sector →</button>
     <button class="ghost" onclick="toHub()">Bank &amp; Return</button></div>
+  </div>
+
+  <div id="codex" class="overlay" style="overflow-y:auto; justify-content:flex-start; padding-top:30px">
+    <h2 style="font-size:28px;color:#6fe9ff;text-shadow:0 0 16px #37c6ff;letter-spacing:3px;margin-bottom:4px">ARSENAL</h2>
+    <div style="color:#8890a4;font-size:12px;margin-bottom:18px">Everything you can find in a run</div>
+    <div id="codexList" style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center;max-width:720px;margin-bottom:20px"></div>
+    <button onclick="closeCodex()">Close</button>
   </div>
 
   <div id="pause" class="overlay">
@@ -114,6 +128,7 @@
       <button id="chestBtn" onclick="openChest()">OPEN DATA CHEST — 20 ◆</button>
     </div>
     <div class="row" style="margin-top:8px">
+      <button onclick="openCodex()" style="font-size:12px;padding:7px 16px">📖 VIEW UPGRADES</button>
       <button id="muteBtn" onclick="toggleMute()" style="font-size:12px;padding:7px 16px">🔊 SOUND: ON</button>
     </div>
     <div id="chestResult"></div>
@@ -355,12 +370,28 @@ let kills,startTime,spawnTimer,fireTimer,gameOver,won,lastTime,running;
 let dashCd,dashTime,dashDir,iFrames;
 let level,xp,xpNeeded,paused,pausedAccum,pauseStart;
 let objective,phase,bannerTimer,nodes,bossPending,menuPaused;
-let shake,hitFlash,stats,lightningTimer,pulseTimer,regenTimer,moveAng,vacuumTimer,itemVacTimer,dmgVig;
+let shake,hitFlash,stats,lightningTimer,pulseTimer,regenTimer,moveAng,dmgVig;
 let bladeAng,wispTimer,frostTimer,mineTimer,wisps,mines,frostZones,blade;
+let beams2,beamTimer,scatterTimer,discTimer,discs,turretTimer,turrets,holeTimer,holes,beamSpin;
 let levelIndex,runCores,LV;
 
-function startRun(){ AUDIO.init(); levelIndex=0; runCores=0; document.getElementById('hub').style.display='none'; startLevel(); }
-function nextLevel(){ levelIndex++; document.getElementById('win').style.display='none'; startLevel(true); }
+function startRun(){ AUDIO.init(); closeCodex(); levelIndex=0; runCores=0; document.getElementById('hub').style.display='none'; startLevel(); }
+function nextLevel(){
+  document.getElementById('win').style.display='none';
+  const fade=document.getElementById('fade');
+  const nextLV=LEVELS[Math.min(levelIndex+1,LEVELS.length-1)];
+  // tint the fade with the NEXT sector's neon accent so the swap previews its mood
+  fade.style.background='radial-gradient(circle at 50% 50%, '+nextLV.accent+'22 0%, #04050a 65%)';
+  fade.classList.add('show');            // fade to (tinted) black ~0.55s
+  setTimeout(()=>{                        // once fully dark, swap the level
+    levelIndex++;
+    startLevel(true);
+    // brief hold on black so the new sector is fully built, then fade back in
+    setTimeout(()=>{ fade.classList.remove('show');
+      setTimeout(()=>{ fade.style.background='#04050a'; },600);
+    },120);
+  },560);
+}
 function toHub(){
   // bank run cores into meta
   META.cores+=runCores; runCores=0;
@@ -369,10 +400,25 @@ function toHub(){
   document.getElementById('pause').style.display='none';
   document.getElementById('chestResult').textContent='';
   running=false; menuPaused=false; refreshHub(); MUSIC.stop(); MUSIC.startMenu();
+  document.getElementById('fade').classList.remove('show');
   document.getElementById('hub').style.display='flex';
 }
 
-/* ---- PAUSE MENU ---- */
+/* ---- UPGRADES CODEX (hub reference of everything findable) ---- */
+function openCodex(){
+  const wrap=document.getElementById('codexList');
+  const card=(u,tag)=>`<div style="width:210px;text-align:left;padding:12px 14px;background:rgba(16,24,39,0.9);border:1px solid #22304a;border-radius:12px">
+    <div style="font-size:15px;font-weight:700;color:#eaf6ff;margin-bottom:3px">${u.ico} ${u.name}
+      <span style="font-size:9px;color:${tag==='WEAPON'?'#6fe9ff':'#ffd86c'};letter-spacing:1px;float:right;margin-top:4px">${tag}</span></div>
+    <div style="font-size:11px;color:#9aa4ba;line-height:1.4">${u.desc}</div></div>`;
+  const weapons=UPGRADES.filter(u=>u.kind==='wpn').map(u=>card(u,'WEAPON')).join('');
+  const passives=UPGRADES.filter(u=>u.kind==='pas').map(u=>card(u,'PASSIVE')).join('');
+  wrap.innerHTML =
+    '<div style="width:100%;text-align:center;color:#6fe9ff;letter-spacing:2px;font-size:13px;margin:2px 0 8px">WEAPONS — evolve at max level</div>'+weapons+
+    '<div style="width:100%;text-align:center;color:#ffd86c;letter-spacing:2px;font-size:13px;margin:14px 0 8px">PASSIVES — stat boosts</div>'+passives;
+  document.getElementById('codex').style.display='flex';
+}
+function closeCodex(){ document.getElementById('codex').style.display='none'; }
 function togglePause(){ menuPaused ? resumeGame() : pauseGame(); }
 function pauseGame(){
   menuPaused=true; pauseStart=performance.now();
@@ -417,10 +463,12 @@ function reset(){
          evoProj:false,evoLight:false,evoPulse:false,
          // new weapons
          bladeLvl:0, wispLvl:0, frostLvl:0, mineLvl:0,
+         beamLvl:0, scatterLvl:0, discLvl:0, turretLvl:0, holeLvl:0,
          // passives (multipliers/bonuses)
          crit:0, cdr:1, area:1, projSpeed:1, xpGain:1, magnet:1, luck:0};
-  lightningTimer=0;pulseTimer=0;regenTimer=0;vacuumTimer=0;itemVacTimer=0;
+  lightningTimer=0;pulseTimer=0;regenTimer=0;
   bladeAng=0;wispTimer=0;frostTimer=0;mineTimer=0;wisps=[];mines=[];frostZones=[];blade=null;
+  beams2=[];beamTimer=0;scatterTimer=0;discTimer=0;discs=[];turretTimer=0;turrets=[];holeTimer=0;holes=[];beamSpin=0;
   // APPLY PERMANENT PERKS
   stats.damage += perkLvl('p_dmg');
   player.maxhp += perkLvl('p_hp')*20; player.hp=player.maxhp;
@@ -572,7 +620,7 @@ function updateWisps(dt){
       w.vx=Math.cos(na)*sp; w.vy=Math.sin(na)*sp; }
     w.x+=w.vx*dt; w.y+=w.vy*dt;
     for(const e of allTargets()){ if(e.hp>0 && Math.hypot(e.x-w.x,e.y-w.y)<e.r+6){
-      const {dmg:d,crit}=rollDmg(w.dmg); hurtEnemy(e,d,crit?'#fff':'#a0f0ff'); w.life=0; burst(w.x,w.y,'#a0f0ff',5);
+      const {dmg:d,crit}=rollDmg(w.dmg); hurtEnemy(e,d,crit?'#fff':'#ff8ff5'); w.life=0; burst(w.x,w.y,'#ff5af0',5);
       if(e===boss){if(boss.hp<=0)defeatBoss();}else if(e.hp<=0)killEnemy(e); break; } }
   }
   wisps=wisps.filter(w=>w.life>0);
@@ -589,7 +637,7 @@ function updateFrost(dt){
 function updateMines(dt){
   if(stats.mineLvl<=0)return;
   mineTimer-=dt;
-  if(mineTimer<=0){ mineTimer=Math.max(0.6,1.6-stats.mineLvl*0.15); mines.push({x:player.x,y:player.y,r:8,arm:0.4,dmg:6+stats.mineLvl*3}); }
+  if(mineTimer<=0){ mineTimer=Math.max(0.8,1.8-stats.mineLvl*0.13); mines.push({x:player.x,y:player.y,r:8,arm:0.4,dmg:3+stats.mineLvl*1.4}); }
   for(const m of mines){ if(m.arm>0){m.arm-=dt;continue;}
     for(const e of allTargets()){ if(e.hp>0 && Math.hypot(e.x-m.x,e.y-m.y)<e.r+m.r+((stats.area-1)*20)){
       const rad=(46+stats.mineLvl*8)*stats.area; m.dead=true; burst(m.x,m.y,'#37f6ff',24); addShake(4);
@@ -598,6 +646,105 @@ function updateMines(dt){
         if(e2===boss){if(boss.hp<=0)defeatBoss();}else if(e2.hp<=0)killEnemy(e2); } }
       break; } } }
   mines=mines.filter(m=>!m.dead);
+}
+
+// Beam Lance: continuous laser(s) at nearest enemies; more beams in different directions as it levels
+function updateBeam(dt){
+  if(stats.beamLvl<=0)return;
+  const count=1+Math.floor(stats.beamLvl/2);
+  const spinning = stats.beamLvl>=5;           // only becomes a spinning array at high level
+  beamTimer-=dt;
+  // fire a fresh pulse on a timer (scales with cooldown). Each pulse extends then retracts.
+  if(beamTimer<=0 && (!beams2.length || beams2.every(b=>b.done))){
+    beamTimer=Math.max(0.7,1.7-stats.beamLvl*0.09)*stats.cdr;   // attack-speed / cooldown scales it
+    beams2=[];
+    let base;
+    if(spinning){ beamSpin=(beamSpin||0); base=beamSpin; }
+    else { const t=allTargets(); let best=null,bd=Infinity; for(const e of t){const d=(e.x-player.x)**2+(e.y-player.y)**2;if(d<bd){bd=d;best=e;}}
+      base=best?Math.atan2(best.y-player.y,best.x-player.x):(moveAng||0); }
+    for(let i=0;i<count;i++){ beams2.push({ang:base+i*(Math.PI*2/count),t:0,done:false,hitSet:new Set()}); }
+    if(spinning)beamSpin+=0.5; // rotate the array a bit each pulse for a sweeping feel
+  }
+  const maxReach=180+stats.beamLvl*12, dmg=2+stats.beamLvl*0.8;
+  for(const bm of beams2){ if(bm.done)continue; bm.t+=dt;
+    // extend (0-0.15s) -> hold (0.15-0.30s) -> retract (0.30-0.45s) -> done
+    let reach;
+    if(bm.t<0.15) reach=maxReach*(bm.t/0.15);
+    else if(bm.t<0.30) reach=maxReach;
+    else if(bm.t<0.45) reach=maxReach*(1-(bm.t-0.30)/0.15);
+    else { bm.done=true; continue; }
+    bm.reach=reach;
+    // damage each enemy once per pulse (not continuously)
+    for(const e of allTargets()){ if(e.hp<=0||bm.hitSet.has(e))continue;
+      const dx=e.x-player.x, dy=e.y-player.y, dist=Math.hypot(dx,dy); if(dist>reach)continue;
+      const pa=Math.atan2(dy,dx); let da=pa-bm.ang; while(da>Math.PI)da-=2*Math.PI; while(da<-Math.PI)da+=2*Math.PI;
+      if(Math.cos(da)>0 && Math.abs(Math.sin(da))*dist < 14+(stats.area-1)*8){
+        bm.hitSet.add(e); const {dmg:d,crit}=rollDmg(dmg); hurtEnemy(e,d,crit?'#fff':'#7dffff');
+        if(e===boss){if(boss.hp<=0)defeatBoss();}else if(e.hp<=0)killEnemy(e); } }
+  }
+  if(beams2.length && beams2.every(b=>b.done)) beams2=[];
+}
+// Scatter Burst: shotgun spread of short-range pellets in facing direction
+function updateScatter(dt){
+  if(stats.scatterLvl<=0)return;
+  scatterTimer-=dt;
+  if(scatterTimer<=0){ scatterTimer=Math.max(0.5,1.2-stats.scatterLvl*0.08)*stats.cdr;
+    const n=3+stats.scatterLvl, spread=0.5+stats.scatterLvl*0.05, base=moveAng||0;
+    for(let i=0;i<n;i++){ const a=base+(i/(n-1)-0.5)*spread;
+      bullets.push({x:player.x,y:player.y,vx:Math.cos(a)*520,vy:Math.sin(a)*520,ang:a,r:4,life:0.4,dmg:2+stats.scatterLvl*0.8,pierce:0,hitSet:null,scatter:true}); }
+  }
+}
+// Boomerang Disc: glaives that fly out and return, hitting both ways
+function updateDiscs(dt){
+  if(stats.discLvl<=0)return;
+  discTimer-=dt;
+  if(discTimer<=0){ discTimer=Math.max(1.4,2.8-stats.discLvl*0.18)*stats.cdr;
+    const count=1+Math.floor(stats.discLvl/2), t=allTargets();
+    let base=0; if(t.length){let best=null,bd=Infinity;for(const e of t){const d=(e.x-player.x)**2+(e.y-player.y)**2;if(d<bd){bd=d;best=e;}}base=Math.atan2(best.y-player.y,best.x-player.x);}
+    for(let i=0;i<count;i++){ const ang=base+i*(Math.PI*2/count);
+      discs.push({x:player.x,y:player.y,ang,t:0,out:true,dmg:2+stats.discLvl*0.7,spin:0,hitSet:new Set()}); }
+  }
+  const reach=260*stats.area;
+  for(const d of discs){ d.t+=dt; d.spin+=dt*16;
+    const progress = d.out ? d.t/0.6 : 1-((d.t-0.6)/0.6);
+    const dist = reach*Math.sin(Math.min(1,d.out?progress:progress)*Math.PI/2);
+    d.x = player.x + Math.cos(d.ang)*dist;
+    d.y = player.y + Math.sin(d.ang)*dist;
+    if(d.out && d.t>=0.6){ d.out=false; d.hitSet.clear(); }
+    if(!d.out && d.t>=1.2){ d.dead=true; }
+    for(const e of allTargets()){ if(e.hp>0 && !d.hitSet.has(e) && Math.hypot(e.x-d.x,e.y-d.y)<e.r+12){
+      d.hitSet.add(e); const {dmg:dd,crit}=rollDmg(d.dmg); hurtEnemy(e,dd,crit?'#fff':'#7dffff'); burst(d.x,d.y,'#7dffff',3);
+      if(e===boss){if(boss.hp<=0)defeatBoss();}else if(e.hp<=0)killEnemy(e); } }
+  }
+  discs=discs.filter(d=>!d.dead);
+}
+// Turret Drone: deploy stationary auto-turrets that fire for a few seconds
+function updateTurrets(dt){
+  if(stats.turretLvl<=0)return;
+  turretTimer-=dt;
+  if(turretTimer<=0){ turretTimer=Math.max(2.5,5.0-stats.turretLvl*0.4)*stats.cdr;
+    const count=1+Math.floor(stats.turretLvl/3);
+    for(let i=0;i<count;i++){ const a=Math.random()*Math.PI*2, dist=40+Math.random()*40;
+      turrets.push({x:player.x+Math.cos(a)*dist,y:player.y+Math.sin(a)*dist,life:5+stats.turretLvl*0.5,fireT:0,dmg:2+stats.turretLvl}); } }
+  for(const tr of turrets){ tr.life-=dt; tr.fireT-=dt;
+    if(tr.fireT<=0){ tr.fireT=0.4;
+      const t=allTargets(); if(t.length){ let best=null,bd=Infinity; for(const e of t){const d=(e.x-tr.x)**2+(e.y-tr.y)**2;if(d<bd){bd=d;best=e;}}
+        if(best){ const a=Math.atan2(best.y-tr.y,best.x-tr.x);
+          bullets.push({x:tr.x,y:tr.y,vx:Math.cos(a)*440,vy:Math.sin(a)*440,ang:a,r:4,life:1.2,dmg:tr.dmg,pierce:0,hitSet:null}); } } } }
+  turrets=turrets.filter(tr=>tr.life>0);
+}
+// Black Hole: singularity that pulls enemies in and damages them
+function updateHoles(dt){
+  if(stats.holeLvl<=0)return;
+  holeTimer-=dt;
+  // drop a hole at the player's position on a timer (trails behind you as you move)
+  if(holeTimer<=0){ holeTimer=Math.max(2.5,5.0-stats.holeLvl*0.35)*stats.cdr;
+    holes.push({x:player.x,y:player.y,life:2.6,r:(46+stats.holeLvl*9)*stats.area,dmg:1+stats.holeLvl*0.5,tick:0}); }
+  for(const h of holes){ h.life-=dt; h.tick-=dt; const doTick=h.tick<=0; if(doTick)h.tick=0.25;
+    for(const e of allTargets()){ if(e===boss)continue; const d=Math.hypot(e.x-h.x,e.y-h.y);
+      if(d<h.r){ const a=Math.atan2(h.y-e.y,h.x-e.x); const pull=Math.min(120,(h.r-d))*dt*3.2; e.x+=Math.cos(a)*pull; e.y+=Math.sin(a)*pull;
+        if(doTick){ hurtEnemy(e,h.dmg,'#c77dff'); if(e.hp<=0)killEnemy(e); } } } }
+  holes=holes.filter(h=>h.life>0);
 }
 function burst(x,y,color,n){for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,s=40+Math.random()*120;
   particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:.4+Math.random()*.3,color});}}
@@ -644,6 +791,7 @@ function update(dt){
   if(stats.pulseLvl>0){pulseTimer-=dt;if(pulseTimer<=0){firePulse();AUDIO.pulse();pulseTimer=(stats.evoPulse?1.2:Math.max(1.4,3.0-stats.pulseLvl*0.25))*stats.cdr;}}
   if(stats.wispLvl>0){wispTimer-=dt;if(wispTimer<=0){fireWisp();wispTimer=Math.max(0.6,1.6-stats.wispLvl*0.12)*stats.cdr;}}
   updateBlade(dt); updateWisps(dt); updateFrost(dt); updateMines(dt);
+  updateBeam(dt); updateScatter(dt); updateDiscs(dt); updateTurrets(dt); updateHoles(dt);
   for(const e of enemies){if(e.chill>0)e.chill-=dt;}
 
   for(const o of orbs){o.ang+=dt*2.6;o.x=player.x+Math.cos(o.ang)*52;o.y=player.y+Math.sin(o.ang)*52;
@@ -682,24 +830,22 @@ function update(dt){
   for(const a of arcs)a.life-=dt;
   for(const f of floaters){f.y+=f.vy*dt;f.vy+=60*dt;f.life-=dt;}
 
-  if(vacuumTimer>0)vacuumTimer-=dt;
-  if(itemVacTimer>0)itemVacTimer-=dt;
   for(const pk of pickups){const d=Math.hypot(pk.x-player.x,pk.y-player.y);
-    // item-vacuum pulls health + core pickups toward player
-    if(itemVacTimer>0 && (pk.type==='health'||pk.type==='core')){const a=Math.atan2(player.y-pk.y,player.x-pk.x);pk.x+=Math.cos(a)*820*dt;pk.y+=Math.sin(a)*820*dt;}
+    // item-vacuum: flagged health/core pickups home to the player until collected (no timeout, no distance limit)
+    if(pk.vac){const a=Math.atan2(player.y-pk.y,player.x-pk.x);pk.x+=Math.cos(a)*760*dt;pk.y+=Math.sin(a)*760*dt;}
     if(d<player.r+pk.r+4){ pk.dead=true;
       if(pk.type==='health'){ player.hp=Math.min(player.maxhp,player.hp+player.maxhp*0.25);
         floatNum(player.x,player.y-player.r,Math.round(player.maxhp*0.25),'#5effa8',true); burst(player.x,player.y,'#5effa8',20); AUDIO.pickup(); }
-      else if(pk.type==='vacuum'){ vacuumTimer=1.4; showBanner('XP VACUUM',LV.accent2); burst(player.x,player.y,LV.accent2,24); AUDIO.pickup(); }
-      else if(pk.type==='itemvac'){ itemVacTimer=1.4; showBanner('ITEM VACUUM','#ff9f2e'); burst(player.x,player.y,'#ff9f2e',24); AUDIO.pickup(); }
+      else if(pk.type==='vacuum'){ for(const g of gems)g.vac=true; showBanner('XP VACUUM',LV.accent2); burst(player.x,player.y,LV.accent2,24); AUDIO.pickup(); }
+      else if(pk.type==='itemvac'){ for(const p2 of pickups){ if(p2.type==='health'||p2.type==='core')p2.vac=true; } showBanner('ITEM VACUUM','#ff9f2e'); burst(player.x,player.y,'#ff9f2e',24); AUDIO.pickup(); }
       else if(pk.type==='nuke'){ detonate(); AUDIO.nuke(); }
       else if(pk.type==='core'){ runCores++; floatNum(player.x,player.y-player.r,1,'#ffe14f',false); burst(player.x,player.y,'#ffe14f',10); AUDIO.gem(); }
     }}
   pickups=pickups.filter(p=>!p.dead);
-  const vacuumOn=vacuumTimer>0;
 
   for(const g of gems){const d=Math.hypot(g.x-player.x,g.y-player.y);
-    if(vacuumOn||d<CFG.gemMagnet*stats.magnet){const a=Math.atan2(player.y-g.y,player.x-g.x);const sp=vacuumOn?900:260;g.x+=Math.cos(a)*sp*dt;g.y+=Math.sin(a)*sp*dt;}
+    // vacuumed gems home to player until collected; otherwise normal magnet radius
+    if(g.vac||d<CFG.gemMagnet*stats.magnet){const a=Math.atan2(player.y-g.y,player.x-g.x);const sp=g.vac?900:260;g.x+=Math.cos(a)*sp*dt;g.y+=Math.sin(a)*sp*dt;}
     if(d<player.r+g.r){g.dead=true;AUDIO.gem();xp+=stats.xpGain;if(xp>=xpNeeded){level++;xp=0;xpNeeded=Math.floor(xpNeeded*1.6+2);AUDIO.levelup();openLevelUp();}}}
 
   // ---- NODES: bullets/weapons damage them; they shoot back ONLY when you're near; break all 4 to summon boss ----
@@ -743,9 +889,9 @@ function killEnemy(e){ if(e.isNode)return; /* nodes handled in their own loop */
   // cumulative drop table (rarest first)
   if(r<0.015)                       pickups.push({type:'health',x:e.x,y:e.y,r:11});
   else if(r<0.025)                  pickups.push({type:'nuke',x:e.x,y:e.y,r:12});   // ~1%: clear on-screen enemies
-  else if(r<0.055)                  pickups.push({type:'vacuum',x:e.x,y:e.y,r:11}); // ~3%: pull XP gems
-  else if(r<0.085)                  pickups.push({type:'itemvac',x:e.x,y:e.y,r:11});// ~3%: pull health + cores
-  else if(r<0.085+0.05+luck*0.02)   pickups.push({type:'core',x:e.x,y:e.y,r:9});    // Data Core drop, boosted by luck
+  else if(r<0.040)                  pickups.push({type:'vacuum',x:e.x,y:e.y,r:11}); // ~1.5%: pull XP gems (was 3%)
+  else if(r<0.055)                  pickups.push({type:'itemvac',x:e.x,y:e.y,r:11});// ~1.5%: pull health + cores (was 3%)
+  else if(r<0.055+0.05+luck*0.02)   pickups.push({type:'core',x:e.x,y:e.y,r:9});    // Data Core drop, boosted by luck
 }
 
 // Nuke pickup: kill every non-boss enemy currently on-screen (spares projectiles too)
@@ -885,6 +1031,16 @@ const UPGRADES=[
    lvl:()=> stats.frostLvl>=6?'MAXED':stats.frostLvl===0?'Unlock':`Frost Lv ${stats.frostLvl} → ${stats.frostLvl+1}`,cap:()=>stats.frostLvl>=6,apply(){stats.frostLvl++;}},
   {id:'mine',ico:'💣',name:'Mine Layer',desc:'Drop proximity mines behind you as you move. Rewards kiting.',kind:'wpn',
    lvl:()=> stats.mineLvl>=6?'MAXED':stats.mineLvl===0?'Unlock':`Mine Lv ${stats.mineLvl} → ${stats.mineLvl+1}`,cap:()=>stats.mineLvl>=6,apply(){stats.mineLvl++;}},
+  {id:'beam',ico:'📡',name:'Beam Lance',desc:'Pulses a short beam at enemies on a timer. At high level it becomes a spinning array.',kind:'wpn',
+   lvl:()=> stats.beamLvl>=6?'MAXED':stats.beamLvl===0?'Unlock':`Beams: ${1+Math.floor(stats.beamLvl/2)} → ${1+Math.floor((stats.beamLvl+1)/2)}`,cap:()=>stats.beamLvl>=6,apply(){stats.beamLvl++;}},
+  {id:'scatter',ico:'🔫',name:'Scatter Burst',desc:'A short-range shotgun spread in your facing direction. Levels add pellets + spread.',kind:'wpn',
+   lvl:()=> stats.scatterLvl>=6?'MAXED':stats.scatterLvl===0?'Unlock':`Scatter Lv ${stats.scatterLvl} → ${stats.scatterLvl+1}`,cap:()=>stats.scatterLvl>=6,apply(){stats.scatterLvl++;}},
+  {id:'disc',ico:'🌀',name:'Boomerang Disc',desc:'A glaive that flies out and returns, slicing both ways. Levels add discs.',kind:'wpn',
+   lvl:()=> stats.discLvl>=6?'MAXED':stats.discLvl===0?'Unlock':`Disc Lv ${stats.discLvl} → ${stats.discLvl+1}`,cap:()=>stats.discLvl>=6,apply(){stats.discLvl++;}},
+  {id:'turret',ico:'🛰️',name:'Turret Drone',desc:'Deploy auto-turrets that fire at enemies before expiring. Levels deploy more.',kind:'wpn',
+   lvl:()=> stats.turretLvl>=6?'MAXED':stats.turretLvl===0?'Unlock':`Turret Lv ${stats.turretLvl} → ${stats.turretLvl+1}`,cap:()=>stats.turretLvl>=6,apply(){stats.turretLvl++;}},
+  {id:'hole',ico:'🕳️',name:'Black Hole',desc:'Spawns a singularity that pulls in and crushes nearby enemies. Levels grow its reach.',kind:'wpn',
+   lvl:()=> stats.holeLvl>=6?'MAXED':stats.holeLvl===0?'Unlock':`Hole Lv ${stats.holeLvl} → ${stats.holeLvl+1}`,cap:()=>stats.holeLvl>=6,apply(){stats.holeLvl++;}},
   // --- passive stats ---
   {id:'damage',ico:'🔺',name:'Weapon Power',desc:'All weapons hit harder.',kind:'pas',
    lvl:()=>`Dmg: ${stats.damage} → ${stats.damage+1}`,apply(){stats.damage++;}},
@@ -914,11 +1070,13 @@ const UPGRADES=[
 function isOwned(u){ // has the player already invested in this?
   switch(u.id){case'lightning':return stats.lightningLvl>0;case'pulse':return stats.pulseLvl>0;
     case'blade':return stats.bladeLvl>0;case'wisp':return stats.wispLvl>0;case'frost':return stats.frostLvl>0;
-    case'mine':return stats.mineLvl>0;case'orb':return stats.orbCount>0;case'proj':return true;default:return false;}
+    case'mine':return stats.mineLvl>0;case'orb':return stats.orbCount>0;
+    case'beam':return stats.beamLvl>0;case'scatter':return stats.scatterLvl>0;case'disc':return stats.discLvl>0;
+    case'turret':return stats.turretLvl>0;case'hole':return stats.holeLvl>0;
+    case'proj':return true;default:return false;}
 }
 function addOrb(){const dmg=1+stats.projLevel*0.5;orbs.push({ang:0,x:player.x,y:player.y,r:9,dmg});orbs.forEach((o,i)=>o.ang=i*(Math.PI*2/orbs.length));}
-function openLevelUp(){
-  paused=true;document.getElementById('level').textContent=level;
+function drawUpgradeCards(){
   // build weighted pool: skip maxed; favor owned weapons & unowned weapons over generic passives
   const avail=UPGRADES.filter(u=>!(u.cap&&u.cap()));
   const weighted=[];
@@ -935,6 +1093,27 @@ function openLevelUp(){
   pick.forEach(u=>{const c=document.createElement('div');c.className='card';
     c.innerHTML=`<div class="ico">${u.ico}</div><div class="name">${u.name}</div><div class="desc">${u.desc}</div><div class="lvl">${u.lvl()}</div>`;
     c.onclick=()=>chooseUpgrade(u);cont.appendChild(c);});
+  updateRerollBtn();
+}
+const REROLL_COST=5;
+function updateRerollBtn(){
+  const b=document.getElementById('rerollBtn'); if(!b)return;
+  const cc=document.getElementById('luCores'); if(cc)cc.textContent='◆ '+runCores;
+  b.textContent='🔄 Reroll — '+REROLL_COST+' ◆';
+  const canAfford=runCores>=REROLL_COST;
+  b.disabled=!canAfford;
+  b.style.opacity=canAfford?'1':'0.4';
+  b.style.cursor=canAfford?'pointer':'not-allowed';
+}
+function rerollUpgrades(){
+  if(runCores<REROLL_COST) return;
+  runCores-=REROLL_COST;         // spend current-run cores (not banked hub balance)
+  AUDIO.ui&&AUDIO.ui();
+  drawUpgradeCards();            // fresh set of 3
+}
+function openLevelUp(){
+  paused=true;document.getElementById('level').textContent=level;
+  drawUpgradeCards();
   document.getElementById('levelup').style.display='flex';pauseStart=performance.now();
 }
 function chooseUpgrade(u){u.apply();if(u.id!=='maxhp')player.hp=Math.min(player.maxhp,player.hp+8);
@@ -997,12 +1176,46 @@ function draw(){
   // mines
   for(const m of mines){const armed=m.arm<=0;const pu=armed?0.7+Math.sin(performance.now()/120)*0.3:0.4;ctx.globalAlpha=pu;
     neon('#37f6ff',armed?14:6);poly(m.x,m.y,m.r,3,performance.now()/300,armed?'#37f6ff':'#1a5a6a','#ffffff',0);noNeon();ctx.globalAlpha=1;}
-  // homing wisps
-  for(const w of wisps){neon('#a0f0ff',12);ctx.fillStyle='#a0f0ff';ctx.beginPath();ctx.arc(w.x,w.y,4,0,7);ctx.fill();noNeon();}
+  // homing wisps — bright magenta seekers with a spark trail (distinct from cyan XP gems)
+  for(const w of wisps){
+    ctx.globalAlpha=0.4; neon('#ff5af0',10); ctx.fillStyle='#ff5af0';
+    ctx.beginPath(); ctx.arc(w.x-w.vx*0.02,w.y-w.vy*0.02,3,0,7); ctx.fill(); ctx.globalAlpha=1; // trail
+    neon('#ff8ff5',14); ctx.fillStyle='#ffffff';
+    const a=Math.atan2(w.vy,w.vx);
+    ctx.save(); ctx.translate(w.x,w.y); ctx.rotate(a);
+    ctx.beginPath(); // little 4-point star / arrowhead
+    ctx.moveTo(7,0); ctx.lineTo(0,3); ctx.lineTo(-2,0); ctx.lineTo(0,-3); ctx.closePath();
+    ctx.fillStyle='#ff8ff5'; ctx.fill();
+    ctx.fillStyle='#ffffff'; ctx.beginPath(); ctx.arc(2,0,1.6,0,7); ctx.fill();
+    ctx.restore(); noNeon();
+  }
   // orbital blade (arc trail)
   if(blade&&stats.bladeLvl>0){neon('#8fe0d1',16);ctx.strokeStyle='#8fe0d1';ctx.lineWidth=4;ctx.globalAlpha=0.9;
     ctx.beginPath();ctx.arc(player.x,player.y,blade.reach,bladeAng-0.5,bladeAng+0.5);ctx.stroke();
     ctx.fillStyle='#c4fff0';ctx.beginPath();ctx.arc(blade.bx,blade.by,7,0,7);ctx.fill();noNeon();ctx.globalAlpha=1;}
+  // beam lance (pulses out then retracts; spinning array only at high level)
+  if(stats.beamLvl>0){
+    for(const bm of beams2){ if(bm.done||!bm.reach)continue;
+      neon('#7dffff',14); ctx.strokeStyle='#7dffff'; ctx.lineWidth=5+(stats.area-1)*3; ctx.globalAlpha=0.85;
+      ctx.beginPath(); ctx.moveTo(player.x,player.y); ctx.lineTo(player.x+Math.cos(bm.ang)*bm.reach,player.y+Math.sin(bm.ang)*bm.reach); ctx.stroke();
+      ctx.strokeStyle='#ffffff'; ctx.lineWidth=2; ctx.stroke();
+      ctx.fillStyle='#ffffff'; ctx.beginPath(); ctx.arc(player.x+Math.cos(bm.ang)*bm.reach,player.y+Math.sin(bm.ang)*bm.reach,4,0,7); ctx.fill();
+      noNeon(); ctx.globalAlpha=1; } }
+  // boomerang discs
+  for(const d of discs){ neon('#7dffff',12); ctx.save(); ctx.translate(d.x,d.y); ctx.rotate(d.spin);
+    ctx.strokeStyle='#7dffff'; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(0,0,11,0.4,Math.PI-0.4); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0,0,11,Math.PI+0.4,Math.PI*2-0.4); ctx.stroke(); ctx.restore(); noNeon(); }
+  // turrets
+  for(const tr of turrets){ const fade=Math.min(1,tr.life); ctx.globalAlpha=fade;
+    neon('#37f6ff',12); poly(tr.x,tr.y,10,4,performance.now()/300,'#0a2a33','#37f6ff',0);
+    ctx.fillStyle='#7dffff'; ctx.beginPath(); ctx.arc(tr.x,tr.y,3,0,7); ctx.fill(); noNeon(); ctx.globalAlpha=1; }
+  // black holes
+  for(const h of holes){ const p=Math.min(1,h.life); ctx.globalAlpha=0.8*p;
+    const g=ctx.createRadialGradient(h.x,h.y,2,h.x,h.y,h.r);
+    g.addColorStop(0,'#c77dff'); g.addColorStop(0.5,'rgba(120,50,180,0.4)'); g.addColorStop(1,'rgba(10,5,18,0)');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(h.x,h.y,h.r,0,7); ctx.fill();
+    neon('#c77dff',18); ctx.fillStyle='#1a0a2a'; ctx.beginPath(); ctx.arc(h.x,h.y,8,0,7); ctx.fill();
+    ctx.strokeStyle='#e3c4ff'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(h.x,h.y,h.r*(1-p*0.3),0,7); ctx.stroke(); noNeon(); ctx.globalAlpha=1; }
   for(const pk of pickups){const pu=0.6+Math.sin(performance.now()/200)*0.35;ctx.globalAlpha=pu;
     if(pk.type==='health'){neon('#5effa8',16);ctx.fillStyle='#5effa8';ctx.fillRect(pk.x-3,pk.y-9,6,18);ctx.fillRect(pk.x-9,pk.y-3,18,6);noNeon();}
     else if(pk.type==='core'){neon('#ffe14f',14);poly(pk.x,pk.y,pk.r,4,performance.now()/400,'#ffe14f','#fff6c0',0);noNeon();}
