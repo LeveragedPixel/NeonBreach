@@ -62,6 +62,11 @@
   #hub button:hover:not(:disabled) { background:#37c6ff; color:#04121a; }
   #hub button.primary { background:#37c6ff; color:#04121a; }
   #hub button:disabled { opacity:0.4; cursor:not-allowed; }
+  .setBtn { flex:1; font-size:12px; padding:8px 4px; border:1px solid #2a4570; border-radius:8px;
+    background:transparent; color:#8fa0bc; cursor:pointer; transition:all .12s; }
+  .setBtn:hover { border-color:#37c6ff; color:#bfe6ff; }
+  .setBtn.active { background:#37c6ff; color:#04121a; border-color:#37c6ff; font-weight:700; }
+  #settings input[type=range] { accent-color:#37c6ff; }
   #perks { max-width:560px; margin-top:18px; color:#8fa0bc; font-size:12px; line-height:1.7; }
   #perks .ph { color:#6fe9ff; letter-spacing:2px; font-size:12px; margin-bottom:6px; text-transform:uppercase; }
   #perkList span { display:inline-block; margin:3px 5px; padding:4px 10px; border:1px solid #2a4570; border-radius:20px; color:#bfe6ff; }
@@ -101,6 +106,39 @@
     <button class="ghost" onclick="toHub()">Bank &amp; Return</button></div>
   </div>
 
+  <div id="settings" class="overlay" style="z-index:30;background:#04050a">
+    <h2 style="font-size:28px;color:#6fe9ff;text-shadow:0 0 16px #37c6ff;letter-spacing:3px;margin-bottom:22px">SETTINGS</h2>
+    <div style="display:flex;flex-direction:column;gap:20px;width:300px;text-align:left">
+      <div>
+        <label style="font-size:13px;color:#bfe6ff;letter-spacing:1px">🎵 MUSIC &nbsp;<span id="musicVal" style="color:#6fe9ff;float:right">50%</span></label>
+        <input id="musicSlider" type="range" min="0" max="100" value="50" style="width:100%;margin-top:6px" oninput="onMusicVol(this.value)">
+      </div>
+      <div>
+        <label style="font-size:13px;color:#bfe6ff;letter-spacing:1px">🔊 SOUND FX &nbsp;<span id="sfxVal" style="color:#6fe9ff;float:right">70%</span></label>
+        <input id="sfxSlider" type="range" min="0" max="100" value="70" style="width:100%;margin-top:6px" oninput="onSfxVol(this.value)">
+      </div>
+      <div id="displayOpts" style="display:none;flex-direction:column;gap:16px;border-top:1px solid #22304a;padding-top:18px">
+        <div>
+          <label style="font-size:13px;color:#bfe6ff;letter-spacing:1px">🖥️ WINDOW SIZE</label>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <button class="setBtn" onclick="setWindowSize('small',this)">Small</button>
+            <button class="setBtn" onclick="setWindowSize('medium',this)">Medium</button>
+            <button class="setBtn" onclick="setWindowSize('full',this)">Fullscreen</button>
+          </div>
+        </div>
+        <div>
+          <label style="font-size:13px;color:#bfe6ff;letter-spacing:1px">✨ QUALITY</label>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <button class="setBtn" onclick="setQuality('low',this)">Low</button>
+            <button class="setBtn" onclick="setQuality('med',this)">Medium</button>
+            <button class="setBtn" onclick="setQuality('high',this)">High</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <button onclick="closeSettings()" style="margin-top:24px">Close</button>
+  </div>
+
   <div id="codex" class="overlay" style="overflow-y:auto; justify-content:flex-start; padding-top:30px">
     <h2 style="font-size:28px;color:#6fe9ff;text-shadow:0 0 16px #37c6ff;letter-spacing:3px;margin-bottom:4px">ARSENAL</h2>
     <div style="color:#8890a4;font-size:12px;margin-bottom:18px">Everything you can find in a run</div>
@@ -129,7 +167,7 @@
     </div>
     <div class="row" style="margin-top:8px">
       <button onclick="openCodex()" style="font-size:12px;padding:7px 16px">📖 VIEW UPGRADES</button>
-      <button id="muteBtn" onclick="toggleMute()" style="font-size:12px;padding:7px 16px">🔊 SOUND: ON</button>
+      <button onclick="openSettings()" style="font-size:12px;padding:7px 16px">⚙️ SETTINGS</button>
     </div>
     <div id="chestResult"></div>
     <!-- ===== DEV MODE TOGGLE — REMOVE BEFORE SHIPPING ===== -->
@@ -181,7 +219,7 @@ const AUDIO = {
      (Kenney.nl, freesound.org, Sonniss) — legally safe for a
      monetized game. Same approach as the MUSIC hook at the bottom.
      ============================================================ */
-  ctx:null, muted:false, buffers:{}, lastFire:0,
+  ctx:null, muted:false, buffers:{}, lastFire:0, sfxVol:0.7,
   // Map each game event -> a sound file URL. Empty = silent (current state).
   SFX:{
     shoot:null, lightning:null, pulse:null, hitEnemy:null, crit:null, hurt:null,
@@ -192,12 +230,13 @@ const AUDIO = {
     if(this.ctx) return;
     try{
       this.ctx = new (window.AudioContext||window.webkitAudioContext)();
-      this.master = this.ctx.createGain(); this.master.gain.value = 0.7;
+      this.master = this.ctx.createGain(); this.master.gain.value = this.sfxVol;
       this.master.connect(this.ctx.destination);
       // preload any files that have been assigned
       for(const k in this.SFX){ if(this.SFX[k]) this._load(k, this.SFX[k]); }
     }catch(e){ /* audio unavailable — game runs silently */ }
   },
+  setSfxVol(v){ this.sfxVol=v; if(this.master)this.master.gain.value=v; },
   _load(key,url){
     fetch(url).then(r=>r.arrayBuffer()).then(b=>this.ctx.decodeAudioData(b))
       .then(buf=>this.buffers[key]=buf).catch(()=>{});
@@ -294,10 +333,22 @@ function loadSprites(){for(const k in SPRITES){const s=SPRITES[k];if(s.src){cons
 /* ---------- CANVAS / CAMERA ---------- */
 const cv=document.getElementById('game'),ctx=cv.getContext('2d');
 let W,H;
+let WINDOW_SIZE='medium', QUALITY=1.0;
 function resize(){
-  const maxW = IS_TOUCH ? innerWidth : Math.min(innerWidth,900);
-  const maxH = IS_TOUCH ? innerHeight : Math.min(innerHeight,640);
-  W=cv.width=maxW; H=cv.height=maxH;
+  let vw, vh;
+  if(IS_TOUCH){ vw=innerWidth; vh=innerHeight; }          // mobile: always fill screen
+  else {
+    const caps = { small:[720,480], medium:[900,640], full:[innerWidth,innerHeight] };
+    const [cw,ch] = caps[WINDOW_SIZE]||caps.medium;
+    vw=Math.min(innerWidth,cw); vh=Math.min(innerHeight,ch);
+  }
+  const q = IS_TOUCH ? 1.0 : QUALITY;
+  // CSS (visible) size stays vw x vh; backing store scaled by q for sharpness
+  cv.style.width=vw+'px'; cv.style.height=vh+'px';
+  cv.width=Math.round(vw*q); cv.height=Math.round(vh*q);
+  ctx.setTransform(q,0,0,q,0,0);   // draw in logical coords; q scales to backing store
+  // W/H remain the LOGICAL game size so gameplay/camera are unchanged by quality
+  W=vw; H=vh;
   if(typeof layoutTouchButtons==='function') layoutTouchButtons();
 }
 addEventListener('resize',resize);
@@ -1404,10 +1455,46 @@ function loop(){const now=performance.now();
   else{lastTime=now;}
   if(running)draw();requestAnimationFrame(loop);}
 
-function toggleMute(){ AUDIO.init(); AUDIO.muted=!AUDIO.muted;
-  const b=document.getElementById('muteBtn'); b.textContent=AUDIO.muted?'🔇 SOUND: OFF':'🔊 SOUND: ON';
-  MUSIC.setMuted(AUDIO.muted);
+function toggleMute(){ AUDIO.init(); AUDIO.muted=!AUDIO.muted; MUSIC.setMuted(AUDIO.muted);
+  const b=document.getElementById('muteBtn'); if(b)b.textContent=AUDIO.muted?'🔇 SOUND: OFF':'🔊 SOUND: ON';
   if(!AUDIO.muted && document.getElementById('hub').style.display!=='none') MUSIC.startMenu(); }
+
+/* ---- SETTINGS PANEL ---- */
+function openSettings(){
+  AUDIO.init();
+  document.getElementById('displayOpts').style.display = IS_TOUCH ? 'none' : 'flex';
+  // sync sliders to current values
+  const mv=Math.round(MUSIC.vol*100), sv=Math.round(AUDIO.sfxVol*100);
+  document.getElementById('musicSlider').value=mv; document.getElementById('musicVal').textContent=mv+'%';
+  document.getElementById('sfxSlider').value=sv; document.getElementById('sfxVal').textContent=sv+'%';
+  // highlight active window-size + quality
+  if(!IS_TOUCH){
+    document.querySelectorAll('#displayOpts .setBtn').forEach(b=>b.classList.remove('active'));
+    const sizeIdx={small:0,medium:1,full:2}[WINDOW_SIZE];
+    const qIdx={0.7:0,1.0:1,1.5:2}[QUALITY];
+    const rows=document.querySelectorAll('#displayOpts > div');
+    if(rows[0]) rows[0].querySelectorAll('.setBtn')[sizeIdx]?.classList.add('active');
+    if(rows[1]) rows[1].querySelectorAll('.setBtn')[qIdx]?.classList.add('active');
+  }
+  document.getElementById('settings').style.display='flex';
+}
+function closeSettings(){ document.getElementById('settings').style.display='none'; }
+function onMusicVol(v){ const f=v/100; MUSIC.setVol(f); document.getElementById('musicVal').textContent=v+'%';
+  // starting menu music if it's up and volume raised from 0
+  if(f>0 && document.getElementById('hub').style.display!=='none') MUSIC.startMenu(); }
+function onSfxVol(v){ AUDIO.setSfxVol(v/100); document.getElementById('sfxVal').textContent=v+'%'; }
+function setWindowSize(size,btn){
+  WINDOW_SIZE=size; markActive(btn);
+  resize();
+}
+function setQuality(q,btn){
+  QUALITY = q==='low'?0.7 : q==='high'?1.5 : 1.0;
+  markActive(btn);
+  resize();
+}
+function markActive(btn){ // highlight the chosen button in its row
+  const row=btn.parentElement; row.querySelectorAll('.setBtn').forEach(b=>b.classList.remove('active')); btn.classList.add('active');
+}
 
 /* ============================================================
    MUSIC HOOK — boss-aware, per-level Suno synthwave tracks.
@@ -1431,6 +1518,12 @@ const MUSIC = {
     { calm:'audio/level4_calm.mp3', boss:'audio/level4_boss.mp3' }, // 4 Molten Core
     { calm:'audio/level5_calm.mp3', boss:'audio/level5_boss.mp3' }, // 5 The Nexus
   ],
+  setVol(v){ this.vol=v;
+    // apply to whichever track is currently audible
+    if(this.menuEl && !this.menuEl.paused) this.menuEl.volume=v;
+    const active = this.mode==='boss'?this.bossEl:this.calmEl;
+    if(active) active.volume=v*this.duckMul;
+  },
   _make(src){ if(!src)return null; const a=new Audio(src); a.loop=true; a.volume=0; a.muted=AUDIO.muted;
     a.addEventListener('error',()=>{}); // missing file (e.g. track not made yet) -> just stays silent
     const p=a.play(); if(p&&p.catch) p.catch(()=>{ MUSIC._pending.push(a); }); return a; },
