@@ -266,13 +266,13 @@ const LEVELS = [
   { name:'The Breach',    accent:'#37c6ff', accent2:'#6fe9ff', grid:'#0c1428', wall:'#3a6edb', floor:'#05060e',
     roster:['skitterer','splitter','hulk'],                              spawnBase:1.00, hpMult:1.0, bossHp:170, bossKind:'core',      coreReward:15 },
   { name:'Deep Sector',   accent:'#ff3df0', accent2:'#ff9bf5', grid:'#1a0c22', wall:'#a02fd0', floor:'#0a040e',
-    roster:['skitterer','splitter','hulk','spitter','stalker'],          spawnBase:0.85, hpMult:1.4, bossHp:280, bossKind:'twin',      coreReward:30 },
+    roster:['skitterer','splitter','hulk','spitter','stalker'],          spawnBase:0.85, hpMult:1.6, bossHp:280, bossKind:'twin',      coreReward:30 },
   { name:'Data Vault',    accent:'#37ff8f', accent2:'#a0ffcf', grid:'#08210f', wall:'#2fd06e', floor:'#040e07',
-    roster:['skitterer','splitter','hulk','spitter','stalker','brute'],  spawnBase:0.72, hpMult:1.9, bossHp:430, bossKind:'warden',    coreReward:45 },
+    roster:['skitterer','splitter','hulk','spitter','stalker','brute'],  spawnBase:0.72, hpMult:2.6, bossHp:430, bossKind:'warden',    coreReward:45 },
   { name:'Molten Core',   accent:'#ff8a2e', accent2:'#ffc27a', grid:'#241205', wall:'#d0702f', floor:'#0e0704',
-    roster:['skitterer','hulk','spitter','stalker','brute','weaver'],    spawnBase:0.62, hpMult:2.5, bossHp:620, bossKind:'reaver',    coreReward:60 },
+    roster:['skitterer','hulk','spitter','stalker','brute','weaver'],    spawnBase:0.62, hpMult:4.0, bossHp:620, bossKind:'reaver',    coreReward:60 },
   { name:'The Nexus',     accent:'#c77dff', accent2:'#e3c4ff', grid:'#160a26', wall:'#8a2fd0', floor:'#0a0512',
-    roster:['skitterer','splitter','hulk','spitter','stalker','brute','weaver'], spawnBase:0.52, hpMult:3.2, bossHp:950, bossKind:'nexus', coreReward:100 },
+    roster:['skitterer','splitter','hulk','spitter','stalker','brute','weaver'], spawnBase:0.52, hpMult:6.0, bossHp:950, bossKind:'nexus', coreReward:100 },
 ];
 
 /* ===== DEV MODE — REMOVE BEFORE SHIPPING =====
@@ -551,7 +551,7 @@ function floatNum(x,y,val,color,big){floaters.push({x,y:y-10,vy:-38,life:0.8,val
 function damagePlayer(amt){
   if(iFrames>0)return;
   if(DEV_GOD)return; /* DEV: god mode blocks all damage — REMOVE BEFORE SHIPPING */
-  if(stats&&stats.armor)amt=Math.max(1,amt-stats.armor); // flat reduction, min 1
+  if(stats&&stats.armor)amt=amt*(1-Math.min(0.5,stats.armor)); // % reduction, hard-capped at 50%
   AUDIO.hurt();
   player.hp-=amt;hitFlash=0.18;addShake(Math.min(10,amt*0.5+2));
   const v=document.getElementById('vignette');dmgVig=Math.min(0.9,amt*0.05+0.35);
@@ -590,7 +590,9 @@ function spawnEnemy(){
   makeEnemy(type,x,y);
 }
 function makeEnemy(type,x,y){
-  const hm=LV?LV.hpMult:1;
+  const elapsed=(performance.now()-startTime-pausedAccum)/1000;
+  const timeRamp = 1 + Math.min(1.0, elapsed/120)*(levelIndex*0.15); // later levels ramp faster over time
+  const hm=(LV?LV.hpMult:1)*timeRamp;
   const mk=(o)=>{o.hp=Math.round(o.hp*hm);o.maxhp=o.hp;o.hitCd=0;enemies.push(o);};
   if(type==='hulk')          mk({type,x,y,r:20,speed:34+Math.random()*14,hp:9});
   else if(type==='splitter') mk({type,x,y,r:15,speed:46+Math.random()*20,hp:5,splits:true});
@@ -962,9 +964,9 @@ function killEnemy(e){ if(e.isNode)return; /* nodes handled in their own loop */
   // cumulative drop table (rarest first)
   if(r<0.015)                       pickups.push({type:'health',x:e.x,y:e.y,r:11});
   else if(r<0.025)                  pickups.push({type:'nuke',x:e.x,y:e.y,r:12});   // ~1%: clear on-screen enemies
-  else if(r<0.040)                  pickups.push({type:'vacuum',x:e.x,y:e.y,r:11}); // ~1.5%: pull XP gems (was 3%)
-  else if(r<0.055)                  pickups.push({type:'itemvac',x:e.x,y:e.y,r:11});// ~1.5%: pull health + cores (was 3%)
-  else if(r<0.055+0.05+luck*0.02)   pickups.push({type:'core',x:e.x,y:e.y,r:9});    // Data Core drop, boosted by luck
+  else if(r<0.031)                  pickups.push({type:'vacuum',x:e.x,y:e.y,r:11}); // ~0.6%: pull XP gems (was 1.5%)
+  else if(r<0.037)                  pickups.push({type:'itemvac',x:e.x,y:e.y,r:11});// ~0.6%: pull health + cores (was 1.5%)
+  else if(r<0.037+0.05+luck*0.02)   pickups.push({type:'core',x:e.x,y:e.y,r:9});    // Data Core drop, boosted by luck
 }
 
 // Nuke pickup: kill every non-boss enemy currently on-screen (spares projectiles too)
@@ -1026,9 +1028,15 @@ function updateBoss(dt){
   if(boss.kind==='reaver'&&boss.charge>0){ boss.x+=Math.cos(boss.chargeDir)*420*dt; boss.y+=Math.sin(boss.chargeDir)*420*dt; boss.charge-=dt; }
   else { boss.x+=Math.cos(a)*chase*dt; boss.y+=Math.sin(a)*chase*dt; }
   boss.x=Math.max(boss.r,Math.min(CFG.world.w-boss.r,boss.x));boss.y=Math.max(boss.r,Math.min(CFG.world.h-boss.r,boss.y));
-  if(Math.hypot(boss.x-player.x,boss.y-player.y)<boss.r+player.r){if(iFrames<=0&&(boss.touchCd||0)<=0){
-    const cd={core:11,twin:15,warden:16,reaver:20,nexus:24}; damagePlayer(cd[boss.kind]||16);boss.touchCd=0.5;}}
+  const bd=Math.hypot(boss.x-player.x,boss.y-player.y);
+  if(bd<boss.r+player.r && iFrames<=0){
+    // deep inside the boss body = heavy rapid damage (can't camp its center to farm it)
+    if(bd < boss.r*0.6){ if((boss.coreCd||0)<=0){ damagePlayer(boss.kind==='nexus'?40:32); boss.coreCd=0.2; } }
+    // edge contact = normal periodic contact damage
+    else if((boss.touchCd||0)<=0){ const cd={core:11,twin:15,warden:16,reaver:20,nexus:24}; damagePlayer(cd[boss.kind]||16);boss.touchCd=0.5; }
+  }
   if(boss.touchCd>0)boss.touchCd-=dt;
+  if(boss.coreCd>0)boss.coreCd-=dt;
 
   boss.shootTimer-=dt;
   const fire=boss.shootTimer<=0;
@@ -1133,8 +1141,8 @@ const UPGRADES=[
    lvl:()=> stats.luck>=5?'MAXED':`Luck: ${stats.luck} → ${stats.luck+1}`,cap:()=>stats.luck>=5,apply(){stats.luck++;}},
   {id:'speed',ico:'👟',name:'Servo Boost',desc:'Run faster. Easier to kite the swarm.',kind:'pas',
    lvl:()=>`Speed: ${Math.round(player.speed)} → ${Math.round(player.speed+20)}`,apply(){player.speed+=20;}},
-  {id:'armor',ico:'🧱',name:'Plating',desc:'Reduce all incoming damage by a flat amount.',kind:'pas',
-   lvl:()=> stats.armor>=12?'MAXED':`Armor: ${stats.armor} → ${stats.armor+2}`,cap:()=>stats.armor>=12,apply(){stats.armor+=2;}},
+  {id:'armor',ico:'🧱',name:'Plating',desc:'Reduce all incoming damage by a percentage (caps at 50%).',kind:'pas',
+   lvl:()=> stats.armor>=0.5?'MAXED (50%)':`Damage taken −${Math.round(stats.armor*100)}% → −${Math.round(Math.min(0.5,stats.armor+0.1)*100)}%`,cap:()=>stats.armor>=0.5,apply(){stats.armor=Math.min(0.5,stats.armor+0.1);}},
   {id:'maxhp',ico:'❤️',name:'Max Integrity',desc:'+25 max HP and restore to full.',kind:'pas',
    lvl:()=>`HP: ${player.maxhp} → ${player.maxhp+25}`,apply(){player.maxhp+=25;player.hp=player.maxhp;}},
   {id:'regen',ico:'✨',name:'Nanite Regen',desc:'Slowly recover integrity over time.',kind:'pas',
@@ -1168,24 +1176,30 @@ function drawUpgradeCards(){
     c.onclick=()=>chooseUpgrade(u);cont.appendChild(c);});
   updateRerollBtn();
 }
-const REROLL_COST=5;
+const REROLL_BASE=5;
+let rerollCount=0;
+function rerollCost(){ return REROLL_BASE*(rerollCount+1); } // 5, 10, 15, 20...
 function updateRerollBtn(){
   const b=document.getElementById('rerollBtn'); if(!b)return;
   const cc=document.getElementById('luCores'); if(cc)cc.textContent='◆ '+runCores;
-  b.textContent='🔄 Reroll — '+REROLL_COST+' ◆';
-  const canAfford=runCores>=REROLL_COST;
+  const cost=rerollCost();
+  b.textContent='🔄 Reroll — '+cost+' ◆';
+  const canAfford=runCores>=cost;
   b.disabled=!canAfford;
   b.style.opacity=canAfford?'1':'0.4';
   b.style.cursor=canAfford?'pointer':'not-allowed';
 }
 function rerollUpgrades(){
-  if(runCores<REROLL_COST) return;
-  runCores-=REROLL_COST;         // spend current-run cores (not banked hub balance)
+  const cost=rerollCost();
+  if(runCores<cost) return;
+  runCores-=cost;                // spend current-run cores; cost rises each reroll this level-up
+  rerollCount++;
   AUDIO.ui&&AUDIO.ui();
   drawUpgradeCards();            // fresh set of 3
 }
 function openLevelUp(){
   paused=true;document.getElementById('level').textContent=level;
+  rerollCount=0;                 // reset escalating cost each level-up
   drawUpgradeCards();
   document.getElementById('levelup').style.display='flex';pauseStart=performance.now();
 }
