@@ -96,7 +96,7 @@
     <div id="cards"></div>
     <button id="rerollBtn" onclick="rerollUpgrades()" class="ghost" style="margin-top:18px;font-size:14px">🔄 Reroll — 5 ◆</button>
   </div>
-  <div id="over" class="overlay">
+  <div id="over" class="overlay" style="overflow-y:auto;padding:24px">
     <h1>SIGNAL LOST</h1><p id="overstats"></p>
     <button onclick="toHub()">Return to Grid</button>
   </div>
@@ -167,6 +167,9 @@
       <button id="chestBtn" onclick="openChest()">OPEN DATA CHEST — 20 ◆</button>
     </div>
     <div class="row" style="margin-top:8px">
+      <button onclick="startHardMode()" style="font-size:12px;padding:7px 16px;border-color:#ff5a6e;color:#ff8f9c">⚡ HARD MODE (TEST)</button>
+    </div>
+    <div class="row" style="margin-top:8px">
       <button onclick="openCodex()" style="font-size:12px;padding:7px 16px">📖 VIEW UPGRADES</button>
       <button onclick="openSettings()" style="font-size:12px;padding:7px 16px">⚙️ SETTINGS</button>
     </div>
@@ -184,7 +187,7 @@
     </div>
     <div class="ctrls">WASD / ARROWS — MOVE &nbsp;·&nbsp; SPACE — DASH<br>
       Collect ◆ Data Cores in runs · spend them on permanent upgrades · clear sectors to go deeper</div>
-    <div id="version" style="margin-top:14px;color:#3a4560;font-size:11px;letter-spacing:1px">v1.4</div>
+    <div id="version" style="margin-top:14px;color:#3a4560;font-size:11px;letter-spacing:1px">v1.7</div>
   </div>
 </div></div>
 
@@ -429,6 +432,21 @@ let beams2,beamTimer,scatterTimer,discTimer,discs,turretTimer,turrets,holeTimer,
 let levelIndex,runCores,LV;
 
 function startRun(){ AUDIO.init(); closeCodex(); levelIndex=0; runCores=0; document.getElementById('hub').style.display='none'; startLevel(); }
+
+/* ---- HARD MODE (test harness): drop into a late sector pre-kitted ---- */
+let pendingLevelUps=0;
+let pickCounts={};
+function startHardMode(){
+  AUDIO.init(); closeCodex();
+  levelIndex=4;               // start at level 5 (index 4) — the deepest existing sector; bump to 5 when 6-10 exist
+  runCores=1300;              // ~250 rerolls worth of cores (escalating cost covered) for build testing
+  document.getElementById('hub').style.display='none';
+  startLevel();
+  // grant a stack of level-ups so you arrive kitted, served as real random picks
+  level=26; xp=0; xpNeeded=200;   // natural leveling continues normally after the granted picks
+  pendingLevelUps=25;
+  openLevelUp();              // first of the 25; the rest chain as you pick
+}
 function nextLevel(){
   document.getElementById('win').style.display='none';
   const fade=document.getElementById('fade');
@@ -511,7 +529,7 @@ function reset(){
   kills=0;startTime=performance.now();spawnTimer=0;fireTimer=0;
   gameOver=false;won=false;lastTime=performance.now();
   dashCd=0;dashTime=0;dashDir={x:1,y:0};iFrames=0;moveAng=0;
-  level=1;xp=0;xpNeeded=8;paused=false;pausedAccum=0;shake=0;hitFlash=0;dmgVig=0;
+  level=1;xp=0;xpNeeded=8;paused=false;pausedAccum=0;shake=0;hitFlash=0;dmgVig=0;pendingLevelUps=0;pickCounts={};
   stats={projectiles:1,orbCount:0,projLevel:1,damage:1,lightningLvl:0,pulseLvl:0,regen:0,armor:0,
          evoProj:false,evoLight:false,evoPulse:false,
          // new weapons
@@ -1227,7 +1245,9 @@ function openLevelUp(){
   document.getElementById('levelup').style.display='flex';pauseStart=performance.now();
 }
 function chooseUpgrade(u){u.apply();if(u.id!=='maxhp')player.hp=Math.min(player.maxhp,player.hp+8);
+  pickCounts[u.id]=(pickCounts[u.id]||0)+1;  // track real number of times each upgrade was chosen
   burst(player.x,player.y,LV.accent,16);document.getElementById('levelup').style.display='none';
+  if(pendingLevelUps>0){ pendingLevelUps--; if(pendingLevelUps>0){ openLevelUp(); return; } }
   pausedAccum+=performance.now()-pauseStart;paused=false;lastTime=performance.now();}
 
 /* ---------- DRAW HELPERS ---------- */
@@ -1475,8 +1495,24 @@ function drawMinimap(){
 }
 
 /* ---------- END / WIN STATES ---------- */
+// Returns the player's build from the REAL number of times each upgrade was picked
+function buildSummary(){
+  const out=[];
+  for(const u of UPGRADES){ const lv=pickCounts[u.id]||0;
+    if(lv>0){ out.push({name:u.name, ico:u.ico, lv, kind:u.kind}); } }
+  return out;
+}
 function endGame(){gameOver=true;running=false;AUDIO.die();const el=(performance.now()-startTime-pausedAccum)/1000;
-  document.getElementById('overstats').innerHTML=`Sector ${levelIndex+1} • Survived ${Math.floor(el/60)}:${String(Math.floor(el%60)).padStart(2,'0')} • ${kills} kills<br><span style="color:#ffe14f">◆ ${runCores} Data Cores banked</span>`;
+  const mins=Math.floor(el/60), secs=String(Math.floor(el%60)).padStart(2,'0');
+  const build=buildSummary();
+  const weapons=build.filter(b=>b.kind==='wpn'), passives=build.filter(b=>b.kind==='pas');
+  const chip=(b)=>`<span style="display:inline-block;margin:2px;padding:3px 8px;background:rgba(20,30,48,0.9);border:1px solid #22304a;border-radius:8px;font-size:12px;color:#cfe6ff">${b.ico} ${b.name} <span style="color:#6fe9ff">Lv${b.lv}</span></span>`;
+  let html=`<div style="font-size:15px;margin-bottom:6px">Sector ${levelIndex+1} reached • Character Level ${level}</div>`;
+  html+=`<div style="color:#ff8f9c;font-size:20px;font-weight:700;margin-bottom:2px">${kills} ENEMIES SLAIN</div>`;
+  html+=`<div style="color:#8890a4;font-size:12px;margin-bottom:10px">Survived ${mins}:${secs} • <span style="color:#ffe14f">◆ ${runCores} Data Cores banked</span></div>`;
+  if(weapons.length){ html+=`<div style="color:#6fe9ff;font-size:11px;letter-spacing:2px;margin:8px 0 4px">WEAPONS</div><div style="max-width:460px">${weapons.map(chip).join('')}</div>`; }
+  if(passives.length){ html+=`<div style="color:#ffd86c;font-size:11px;letter-spacing:2px;margin:10px 0 4px">PASSIVES</div><div style="max-width:460px">${passives.map(chip).join('')}</div>`; }
+  document.getElementById('overstats').innerHTML=html;
   META.cores+=runCores; runCores=0; refreshHub();
   document.getElementById('over').style.display='flex';}
 function winLevel(){won=true;running=false;AUDIO.win();
