@@ -167,7 +167,7 @@
       <button id="chestBtn" onclick="openChest()">OPEN DATA CHEST — 20 ◆</button>
     </div>
     <div class="row" style="margin-top:8px">
-      <button onclick="startHardMode()" style="font-size:12px;padding:7px 16px;border-color:#ff5a6e;color:#ff8f9c">⚡ HARD MODE (TEST)</button>
+      <button onclick="startHardMode()" style="font-size:12px;padding:7px 16px;border-color:#ff5a6e;color:#ff8f9c">⚡ DEV MODE</button>
     </div>
     <div class="row" style="margin-top:8px">
       <button onclick="openCodex()" style="font-size:12px;padding:7px 16px">📖 VIEW UPGRADES</button>
@@ -187,7 +187,7 @@
     </div>
     <div class="ctrls">WASD / ARROWS — MOVE &nbsp;·&nbsp; SPACE — DASH<br>
       Collect ◆ Data Cores in runs · spend them on permanent upgrades · clear sectors to go deeper</div>
-    <div id="version" style="margin-top:14px;color:#3a4560;font-size:11px;letter-spacing:1px">v1.7</div>
+    <div id="version" style="margin-top:14px;color:#3a4560;font-size:11px;letter-spacing:1px">v2.1</div>
   </div>
 </div></div>
 
@@ -433,7 +433,7 @@ let levelIndex,runCores,LV;
 
 function startRun(){ AUDIO.init(); closeCodex(); levelIndex=0; runCores=0; document.getElementById('hub').style.display='none'; startLevel(); }
 
-/* ---- HARD MODE (test harness): drop into a late sector pre-kitted ---- */
+/* ---- DEV MODE (test harness): drop into a late sector pre-kitted ---- */
 let pendingLevelUps=0;
 let pickCounts={};
 function startHardMode(){
@@ -818,11 +818,11 @@ function updateDiscs(dt){
 // Turret Drone: deploy stationary auto-turrets that fire for a few seconds
 function updateTurrets(dt){
   if(stats.turretLvl<=0)return;
+  const maxTurrets=1+Math.floor(stats.turretLvl/2);   // cap: 1 at Lv1 up to 4 at Lv6 (was unbounded pile-up)
   turretTimer-=dt;
-  if(turretTimer<=0){ turretTimer=Math.max(2.5,5.0-stats.turretLvl*0.4)*stats.cdr;
-    const count=1+Math.floor(stats.turretLvl/3);
-    for(let i=0;i<count;i++){ const a=Math.random()*Math.PI*2, dist=40+Math.random()*40;
-      turrets.push({x:player.x+Math.cos(a)*dist,y:player.y+Math.sin(a)*dist,life:5+stats.turretLvl*0.5,fireT:0,dmg:2+stats.turretLvl}); } }
+  if(turretTimer<=0 && turrets.length<maxTurrets){ turretTimer=Math.max(2.5,5.0-stats.turretLvl*0.4)*stats.cdr;
+    const a=Math.random()*Math.PI*2, dist=40+Math.random()*40;
+    turrets.push({x:player.x+Math.cos(a)*dist,y:player.y+Math.sin(a)*dist,life:6+stats.turretLvl*0.6,fireT:0,dmg:2+stats.turretLvl}); }
   for(const tr of turrets){ tr.life-=dt; tr.fireT-=dt;
     if(tr.fireT<=0){ tr.fireT=0.4;
       const t=allTargets(); if(t.length){ let best=null,bd=Infinity; for(const e of t){const d=(e.x-tr.x)**2+(e.y-tr.y)**2;if(d<bd){bd=d;best=e;}}
@@ -896,16 +896,16 @@ function update(dt){
 
   for(const o of orbs){
     o.ang+=dt*2.6;
-    // respawn timer if this drone was consumed blocking a projectile
-    if(o.down>0){ o.down-=dt; o.x=-9999; o.y=-9999; continue; }
-    o.x=player.x+Math.cos(o.ang)*104; o.y=player.y+Math.sin(o.ang)*104; // 2x orbit distance
-    // damage enemies it touches
+    o.x=player.x+Math.cos(o.ang)*104; o.y=player.y+Math.sin(o.ang)*104; // drone always present, orbiting at 2x distance
+    if(o.shieldCd>0)o.shieldCd-=dt;
+    const hasShield = o.shieldCd<=0;
+    // damage enemies it touches (always active)
     for(const e of allTargets()){if(e.hp>0&&Math.hypot(e.x-o.x,e.y-o.y)<e.r+o.r&&(e.hitCd||0)<=0){
       hurtEnemy(e,o.dmg,'#37f6ff');e.hitCd=0.25;burst(o.x,o.y,'#37f6ff',4);
       if(e===boss){if(boss.hp<=0)defeatBoss();}else if(e.hp<=0)killEnemy(e);}}
-    // block enemy projectiles: destroy the shot, then this drone goes down and respawns (respawn scales with attack speed)
-    for(const e of enemies){ if(e.isProjectile && e.hp>0 && Math.hypot(e.x-o.x,e.y-o.y)<e.r+o.r+3){
-      e.hp=0; burst(o.x,o.y,'#7dffff',8); o.down=Math.max(1.2,3.2-stats.projLevel*0.15)*stats.cdr; break; } }
+    // aura blocks a projectile if charged; blocking consumes the aura (recharges on a short cd), drone stays
+    if(hasShield){ for(const e of enemies){ if(e.isProjectile && e.hp>0 && Math.hypot(e.x-o.x,e.y-o.y)<e.r+o.r+10){
+      e.hp=0; burst(o.x,o.y,'#7dffff',8); o.shieldCd=Math.max(1.0,2.6-stats.projLevel*0.12)*stats.cdr; break; } } }
   }
 
   for(const e of enemies){
@@ -1140,7 +1140,7 @@ const UPGRADES=[
    lvl:()=> stats.evoPulse?'MAXED — Singularity':stats.pulseLvl===0?'Unlock':(stats.pulseLvl>=EVO_CAP.pulse?'EVOLVE → Singularity':`Pulse Lv ${stats.pulseLvl} → ${stats.pulseLvl+1}`),
    apply(){ stats.pulseLvl++;
      if(stats.pulseLvl>=EVO_CAP.pulse&&!stats.evoPulse){stats.evoPulse=true;evoBanner('SINGULARITY');} }},
-  {id:'orb',ico:'🛡️',name:'Defense Drone',desc:'Orbits you, damages enemies, and blocks a projectile (then recharges).',kind:'wpn',
+  {id:'orb',ico:'🛡️',name:'Defense Drone',desc:'Orbits and damages enemies. Its aura blocks a projectile, then recharges.',kind:'wpn',
    lvl:()=> stats.orbCount>=6?'MAXED':`Drones: ${stats.orbCount} → ${stats.orbCount+1}`,cap:()=>stats.orbCount>=6,apply(){stats.orbCount++;addOrb();}},
   // --- new weapons ---
   {id:'blade',ico:'🌀',name:'Orbital Blade',desc:'A neon blade sweeps a wide arc around you, slicing what it passes.',kind:'wpn',
@@ -1151,8 +1151,8 @@ const UPGRADES=[
    lvl:()=> stats.frostLvl>=6?'MAXED':stats.frostLvl===0?'Unlock':`Frost Lv ${stats.frostLvl} → ${stats.frostLvl+1}`,cap:()=>stats.frostLvl>=6,apply(){stats.frostLvl++;}},
   {id:'mine',ico:'💣',name:'Mine Layer',desc:'Drop proximity mines behind you as you move. Rewards kiting.',kind:'wpn',
    lvl:()=> stats.mineLvl>=6?'MAXED':stats.mineLvl===0?'Unlock':`Mine Lv ${stats.mineLvl} → ${stats.mineLvl+1}`,cap:()=>stats.mineLvl>=6,apply(){stats.mineLvl++;}},
-  {id:'beam',ico:'📡',name:'Beam Lance',desc:'Pulses a short beam at enemies on a timer. At high level it becomes a spinning array.',kind:'wpn',
-   lvl:()=> stats.beamLvl>=6?'MAXED':stats.beamLvl===0?'Unlock':`Beams: ${1+Math.floor(stats.beamLvl/2)} → ${1+Math.floor((stats.beamLvl+1)/2)}`,cap:()=>stats.beamLvl>=6,apply(){stats.beamLvl++;}},
+  {id:'beam',ico:'📡',name:'Beam Lance',desc:'Pulses a short beam at enemies on a timer. More beams at Lv3/Lv5; spins at Lv5.',kind:'wpn',
+   lvl:()=> stats.beamLvl>=6?'MAXED':stats.beamLvl===0?'Unlock':`Lv ${stats.beamLvl} → ${stats.beamLvl+1}`,cap:()=>stats.beamLvl>=6,apply(){stats.beamLvl++;}},
   {id:'scatter',ico:'🔫',name:'Scatter Burst',desc:'A short-range shotgun spread in your facing direction. Levels add pellets + spread.',kind:'wpn',
    lvl:()=> stats.scatterLvl>=6?'MAXED':stats.scatterLvl===0?'Unlock':`Scatter Lv ${stats.scatterLvl} → ${stats.scatterLvl+1}`,cap:()=>stats.scatterLvl>=6,apply(){stats.scatterLvl++;}},
   {id:'disc',ico:'🌀',name:'Boomerang Disc',desc:'A glaive that flies out and returns, slicing both ways. Levels add discs.',kind:'wpn',
@@ -1197,7 +1197,31 @@ function isOwned(u){ // has the player already invested in this?
     case'turret':return stats.turretLvl>0;case'hole':return stats.holeLvl>0;
     case'proj':return true;default:return false;}
 }
-function addOrb(){const dmg=1+stats.projLevel*0.5;orbs.push({ang:0,x:player.x,y:player.y,r:9,dmg,down:0});orbs.forEach((o,i)=>o.ang=i*(Math.PI*2/orbs.length));}
+function addOrb(){const dmg=1+stats.projLevel*0.5;orbs.push({ang:0,x:player.x,y:player.y,r:9,dmg,shieldCd:0});orbs.forEach((o,i)=>o.ang=i*(Math.PI*2/orbs.length));}
+// current & next per-hit damage for weapons (simple, honest per-hit number; ×Weapon Power)
+function weaponDmg(id){
+  const P=stats.damage; // Weapon Power multiplier applies to bolts; shown as the global scalar
+  const f={
+    proj:l=>P, // bolt damage = Weapon Power
+    lightning:l=>(2+l*1.0),
+    pulse:l=>(3+l*1.5),
+    orb:l=>(1+(stats.projLevel)*0.5),
+    blade:l=>(2+l*1.2),
+    wisp:l=>(2+l*1.0),
+    frost:l=>(0.5+l*0.4),
+    mine:l=>(3+l*1.4),
+    beam:l=>(2+l*0.8),
+    scatter:l=>(2+l*0.8),
+    disc:l=>(2+l*0.7),
+    turret:l=>(2+l),
+    hole:l=>(1+l*0.5),
+  };
+  if(!f[id])return null;
+  const lvKey={proj:'projLevel',lightning:'lightningLvl',pulse:'pulseLvl',orb:'projLevel',blade:'bladeLvl',wisp:'wispLvl',frost:'frostLvl',mine:'mineLvl',beam:'beamLvl',scatter:'scatterLvl',disc:'discLvl',turret:'turretLvl',hole:'holeLvl'}[id];
+  const cur=stats[lvKey]||0;
+  const now=f[id](cur), next=f[id](cur+1);
+  return {now:Math.round(now*10)/10, next:Math.round(next*10)/10};
+}
 function drawUpgradeCards(){
   // build weighted pool: skip maxed; favor owned weapons & unowned weapons over generic passives
   const avail=UPGRADES.filter(u=>!(u.cap&&u.cap()));
@@ -1213,7 +1237,11 @@ function drawUpgradeCards(){
     if(!seen.has(u.id)){seen.add(u.id);pick.push(u);} }
   const cont=document.getElementById('cards');cont.innerHTML='';
   pick.forEach(u=>{const c=document.createElement('div');c.className='card';
-    c.innerHTML=`<div class="ico">${u.ico}</div><div class="name">${u.name}</div><div class="desc">${u.desc}</div><div class="lvl">${u.lvl()}</div>`;
+    let dmgLine='';
+    if(u.kind==='wpn'){ const d=weaponDmg(u.id);
+      if(d){ const arrow = d.next>d.now ? `${d.now} → ${d.next}` : `${d.now}`;
+        dmgLine=`<div class="dmg" style="color:#ff9f6b;font-size:11px;margin-top:2px">⚔ ${arrow} dmg/hit</div>`; } }
+    c.innerHTML=`<div class="ico">${u.ico}</div><div class="name">${u.name}</div><div class="desc">${u.desc}</div><div class="lvl">${u.lvl()}</div>${dmgLine}`;
     c.onclick=()=>chooseUpgrade(u);cont.appendChild(c);});
   updateRerollBtn();
 }
@@ -1247,7 +1275,9 @@ function openLevelUp(){
 function chooseUpgrade(u){u.apply();if(u.id!=='maxhp')player.hp=Math.min(player.maxhp,player.hp+8);
   pickCounts[u.id]=(pickCounts[u.id]||0)+1;  // track real number of times each upgrade was chosen
   burst(player.x,player.y,LV.accent,16);document.getElementById('levelup').style.display='none';
-  if(pendingLevelUps>0){ pendingLevelUps--; if(pendingLevelUps>0){ openLevelUp(); return; } }
+  if(pendingLevelUps>0){ pendingLevelUps--; if(pendingLevelUps>0){ openLevelUp(); return; }
+    // finished the granted stack (dev mode): restart the level clock so pick time didn't inflate difficulty
+    startTime=performance.now(); pausedAccum=0; }
   pausedAccum+=performance.now()-pauseStart;paused=false;lastTime=performance.now();}
 
 /* ---------- DRAW HELPERS ---------- */
@@ -1424,9 +1454,12 @@ function draw(){
     ctx.fillStyle='#301020';ctx.fillRect(boss.x-52,boss.y-boss.r-20,104,8);
     neon(LV.wall,10);ctx.fillStyle=LV.wall;ctx.fillRect(boss.x-52,boss.y-boss.r-20,104*(boss.hp/boss.maxhp),8);noNeon();}
 
-  for(const o of orbs){ if(o.down>0)continue; neon('#37f6ff',14);ctx.fillStyle='#37f6ff';ctx.beginPath();ctx.arc(o.x,o.y,o.r,0,7);ctx.fill();
+  for(const o of orbs){ neon('#37f6ff',14);ctx.fillStyle='#37f6ff';ctx.beginPath();ctx.arc(o.x,o.y,o.r,0,7);ctx.fill();
     ctx.strokeStyle='#ffffff';ctx.lineWidth=2;ctx.stroke();
-    ctx.globalAlpha=0.4;ctx.beginPath();ctx.arc(o.x,o.y,o.r+3,0,7);ctx.stroke();ctx.globalAlpha=1;noNeon();}
+    if((o.shieldCd||0)<=0){ // aura present = can block a projectile
+      ctx.globalAlpha=0.5;ctx.strokeStyle='#7dffff';ctx.lineWidth=2;ctx.beginPath();ctx.arc(o.x,o.y,o.r+6,0,7);ctx.stroke();ctx.globalAlpha=1;
+    }
+    noNeon();}
 
   ctx.save();ctx.translate(player.x,player.y);ctx.rotate(moveAng);
   if(iFrames>0)ctx.globalAlpha=0.5+Math.sin(performance.now()/40)*0.3;
