@@ -187,7 +187,7 @@
     </div>
     <div class="ctrls">WASD / ARROWS — MOVE &nbsp;·&nbsp; SPACE — DASH<br>
       Collect ◆ Data Cores in runs · spend them on permanent upgrades · clear sectors to go deeper</div>
-    <div id="version" style="margin-top:14px;color:#3a4560;font-size:11px;letter-spacing:1px">v2.1</div>
+    <div id="version" style="margin-top:14px;color:#3a4560;font-size:11px;letter-spacing:1px">v2.3</div>
   </div>
 </div></div>
 
@@ -277,6 +277,16 @@ const LEVELS = [
     roster:['skitterer','hulk','spitter','stalker','brute','weaver'],    spawnBase:0.62, hpMult:4.0, bossHp:620, bossKind:'reaver',    coreReward:60 },
   { name:'The Nexus',     accent:'#c77dff', accent2:'#e3c4ff', grid:'#160a26', wall:'#8a2fd0', floor:'#0a0512',
     roster:['skitterer','splitter','hulk','spitter','stalker','brute','weaver'], spawnBase:0.52, hpMult:6.0, bossHp:950, bossKind:'nexus', coreReward:100 },
+  { name:'Crimson Wound',  accent:'#ff2f4e', accent2:'#ff8fa0', grid:'#260a12', wall:'#d0304a', floor:'#0e0407',
+    roster:['skitterer','stalker','brute','spitter','splitter','shielder'],       spawnBase:0.50, hpMult:8.0, bossHp:1250, bossKind:'hivemind',  coreReward:130 },
+  { name:'The Foundry',    accent:'#ffd23f', accent2:'#ffe79b', grid:'#241f05', wall:'#d0b02f', floor:'#0e0c04',
+    roster:['skitterer','hulk','brute','spitter','bomber','shielder'],            spawnBase:0.48, hpMult:10.5, bossHp:1600, bossKind:'architect', coreReward:160 },
+  { name:'Mirror Abyss',   accent:'#3fffe7', accent2:'#a0fff5', grid:'#052422', wall:'#2fd0c0', floor:'#040e0d',
+    roster:['skitterer','stalker','weaver','spitter','bomber','summoner'],        spawnBase:0.46, hpMult:13.5, bossHp:2000, bossKind:'mirror',   coreReward:200 },
+  { name:'The Maw',        accent:'#ff8a2e', accent2:'#ffbf87', grid:'#241305', wall:'#d07a2f', floor:'#0e0704',
+    roster:['stalker','brute','weaver','bomber','summoner','juggernaut'],         spawnBase:0.44, hpMult:17.0, bossHp:2600, bossKind:'devourer', coreReward:260 },
+  { name:'Singularity',    accent:'#ffffff', accent2:'#bfe6ff', grid:'#1a1a2e', wall:'#8fa0ff', floor:'#06060c',
+    roster:['skitterer','stalker','brute','weaver','spitter','bomber','summoner','juggernaut','shielder'], spawnBase:0.42, hpMult:22.0, bossHp:3600, bossKind:'omega', coreReward:400 },
 ];
 
 /* ===== DEV MODE — REMOVE BEFORE SHIPPING =====
@@ -438,7 +448,7 @@ let pendingLevelUps=0;
 let pickCounts={};
 function startHardMode(){
   AUDIO.init(); closeCodex();
-  levelIndex=4;               // start at level 5 (index 4) — the deepest existing sector; bump to 5 when 6-10 exist
+  levelIndex=5;               // start at level 6 (index 5) — first NEW sector, for testing the back half
   runCores=1300;              // ~250 rerolls worth of cores (escalating cost covered) for build testing
   document.getElementById('hub').style.display='none';
   startLevel();
@@ -532,6 +542,8 @@ function reset(){
   level=1;xp=0;xpNeeded=8;paused=false;pausedAccum=0;shake=0;hitFlash=0;dmgVig=0;pendingLevelUps=0;pickCounts={};
   stats={projectiles:1,orbCount:0,projLevel:1,damage:1,lightningLvl:0,pulseLvl:0,regen:0,armor:0,
          evoProj:false,evoLight:false,evoPulse:false,
+         evoOrb:false,evoBlade:false,evoWisp:false,evoFrost:false,evoMine:false,
+         evoBeam:false,evoScatter:false,evoDisc:false,evoTurret:false,evoHole:false,
          // new weapons
          bladeLvl:0, wispLvl:0, frostLvl:0, mineLvl:0,
          beamLvl:0, scatterLvl:0, discLvl:0, turretLvl:0, holeLvl:0,
@@ -577,7 +589,14 @@ function damagePlayer(amt){
   const v=document.getElementById('vignette');dmgVig=Math.min(0.9,amt*0.05+0.35);
   floatNum(player.x,player.y-player.r,amt,'#ff5566',amt>=8);
 }
-function hurtEnemy(e,amt,color){e.hp-=amt;floatNum(e.x,e.y-e.r,amt,color||'#ffe9a0');}
+function hurtEnemy(e,amt,color){
+  if(e.shielded&&!e.shields)amt*=0.4;
+  // hivemind: satellite cores take damage; main boss is shielded until all cores are down
+  if(e.isCore){ e.hp-=amt; floatNum(e.x,e.y-e.r,Math.round(amt),color||'#ff8fa0');
+    if(e.hp<=0){ e.dead=true; e.reviveT=6; burst(e.x,e.y,'#ff5a6e',24); addShake(5); } return; }
+  if(e===boss && boss.kind==='hivemind' && boss.cores && boss.cores.some(c=>!c.dead)){
+    floatNum(e.x,e.y-e.r,'SHIELDED','#6fe9ff'); return; } // invulnerable while any core lives
+  e.hp-=amt;floatNum(e.x,e.y-e.r,Math.round(amt*10)/10,color||'#ffe9a0');}
 
 /* ---------- DASH ---------- */
 function tryDash(){
@@ -623,6 +642,10 @@ function makeEnemy(type,x,y){
   else if(type==='stalker')  mk({type,x,y,r:13,speed:96+Math.random()*30,hp:6});
   else if(type==='brute')    mk({type,x,y,r:26,speed:42+Math.random()*10,hp:20});           // big, fast-ish, heavy hitter
   else if(type==='weaver')   mk({type,x,y,r:12,speed:70+Math.random()*20,hp:5,shootTimer:1.5+Math.random()*1.5,ranged:true,weave:Math.random()*6}); // strafing shooter
+  else if(type==='shielder')  mk({type,x,y,r:16,speed:40+Math.random()*12,hp:10,shields:true});                          // projects a shield aura over nearby enemies
+  else if(type==='bomber')    mk({type,x,y,r:15,speed:60+Math.random()*20,hp:6,bomber:true});                            // explodes into a ring of shots on death
+  else if(type==='summoner')  mk({type,x,y,r:17,speed:30+Math.random()*10,hp:14,summonT:2+Math.random()*2,summoner:true});// spawns skitterers until killed
+  else if(type==='juggernaut')mk({type,x,y,r:30,speed:26+Math.random()*6,hp:48,noSlow:true});                            // massive HP, immune to slow/knockback
   else                       mk({type:'skitterer',x,y,r:12,speed:52+Math.random()*30,hp:3});
 }
 function spawnSplitlings(x,y){for(let i=0;i<2;i++){const a=Math.random()*Math.PI*2;
@@ -631,7 +654,9 @@ function spawnSplitlings(x,y){for(let i=0;i<2;i++){const a=Math.random()*Math.PI
 /* ---------- WEAPONS ---------- */
 function allTargets(){
   const base=enemies.filter(e=>!e.isProjectile);
-  if(boss)base.push(boss);
+  if(boss){ base.push(boss);
+    // hivemind satellite cores are their own targets
+    if(boss.kind==='hivemind'&&boss.cores){ for(const c of boss.cores) if(!c.dead){ c.isCore=true; base.push(c); } } }
   if(phase==='explore'&&nodes){ for(const n of nodes) if(!n.dead) base.push(n); }
   return base;
 }
@@ -685,6 +710,7 @@ function fireWisp(){
   const t=allTargets(); if(!t.length)return;
   const count=1+Math.floor(stats.wispLvl/2);
   for(let i=0;i<count;i++){ const a=Math.random()*Math.PI*2;
+    for(let j=0;j<1+(stats.evoWisp?2:0);j++)
     wisps.push({x:player.x,y:player.y,vx:Math.cos(a)*160,vy:Math.sin(a)*160,life:2.6,dmg:2+stats.wispLvl*1.0}); }
 }
 function updateWisps(dt){
@@ -705,7 +731,7 @@ function updateWisps(dt){
 // Frost Field: aura that slows nearby enemies and ticks small damage
 function updateFrost(dt){
   if(stats.frostLvl<=0)return;
-  const radius=(60+stats.frostLvl*16)*stats.area, dmg=(0.5+stats.frostLvl*0.4);
+  const radius=(60+stats.frostLvl*16)*stats.area*(stats.evoFrost?1.5:1), dmg=(0.5+stats.frostLvl*0.4)*(stats.evoFrost?1.8:1);
   frostTimer-=dt; const tick=frostTimer<=0; if(tick)frostTimer=0.4;
   for(const e of allTargets()){ if(e===boss)continue; const d=Math.hypot(e.x-player.x,e.y-player.y);
     if(d<radius+e.r){ e.chill=0.5; if(tick){hurtEnemy(e,dmg,'#bfe8ff'); if(e.hp<=0)killEnemy(e);} } }
@@ -735,8 +761,9 @@ function updateMines(dt){
 // Beam Lance: continuous laser(s) at nearest enemies; more beams in different directions as it levels
 function updateBeam(dt){
   if(stats.beamLvl<=0)return;
-  const count=1+Math.floor(stats.beamLvl/2);
+  const count=1+Math.floor(stats.beamLvl/2)+evoBonus;
   const spinning = stats.beamLvl>=5;           // only becomes a spinning array at high level
+  const evoBonus = stats.evoBeam?2:0;          // Prism Storm: +2 beams
   beamTimer-=dt;
   // fire a fresh pulse on a timer (scales with cooldown). Each pulse extends then retracts.
   if(beamTimer<=0 && (!beams2.length || beams2.every(b=>b.done))){
@@ -786,7 +813,7 @@ function updateScatter(dt){
     // aim at nearest enemy (survivors-style auto-target) instead of facing direction
     const t=allTargets(); let best=null,bd=Infinity; for(const e of t){const d=(e.x-player.x)**2+(e.y-player.y)**2;if(d<bd){bd=d;best=e;}}
     const base = best ? Math.atan2(best.y-player.y,best.x-player.x) : (moveAng||0);
-    const n=3+stats.scatterLvl, spread=0.5+stats.scatterLvl*0.05;
+    const n=3+stats.scatterLvl+(stats.evoScatter?4:0), spread=0.5+stats.scatterLvl*0.05+(stats.evoScatter?0.4:0);
     for(let i=0;i<n;i++){ const a=base+(i/(n-1)-0.5)*spread;
       bullets.push({x:player.x,y:player.y,vx:Math.cos(a)*520,vy:Math.sin(a)*520,ang:a,r:4,life:0.4,dmg:2+stats.scatterLvl*0.8,pierce:0,hitSet:null,scatter:true}); }
   }
@@ -796,7 +823,7 @@ function updateDiscs(dt){
   if(stats.discLvl<=0)return;
   discTimer-=dt;
   if(discTimer<=0){ discTimer=Math.max(1.4,2.8-stats.discLvl*0.18)*stats.cdr;
-    const count=1+Math.floor(stats.discLvl/2), t=allTargets();
+    const count=1+Math.floor(stats.discLvl/2)+(stats.evoDisc?2:0), t=allTargets();
     let base=0; if(t.length){let best=null,bd=Infinity;for(const e of t){const d=(e.x-player.x)**2+(e.y-player.y)**2;if(d<bd){bd=d;best=e;}}base=Math.atan2(best.y-player.y,best.x-player.x);}
     for(let i=0;i<count;i++){ const ang=base+i*(Math.PI*2/count);
       discs.push({x:player.x,y:player.y,ang,t:0,out:true,dmg:2+stats.discLvl*0.7,spin:0,hitSet:new Set()}); }
@@ -818,7 +845,7 @@ function updateDiscs(dt){
 // Turret Drone: deploy stationary auto-turrets that fire for a few seconds
 function updateTurrets(dt){
   if(stats.turretLvl<=0)return;
-  const maxTurrets=1+Math.floor(stats.turretLvl/2);   // cap: 1 at Lv1 up to 4 at Lv6 (was unbounded pile-up)
+  const maxTurrets=1+Math.floor(stats.turretLvl/2)+(stats.evoTurret?2:0);   // cap; War Platform +2
   turretTimer-=dt;
   if(turretTimer<=0 && turrets.length<maxTurrets){ turretTimer=Math.max(2.5,5.0-stats.turretLvl*0.4)*stats.cdr;
     const a=Math.random()*Math.PI*2, dist=40+Math.random()*40;
@@ -836,11 +863,11 @@ function updateHoles(dt){
   holeTimer-=dt;
   // drop a hole at the player's position on a timer (trails behind you as you move)
   if(holeTimer<=0){ holeTimer=Math.max(2.5,5.0-stats.holeLvl*0.35)*stats.cdr;
-    holes.push({x:player.x,y:player.y,life:2.6,r:(46+stats.holeLvl*9)*stats.area,dmg:1+stats.holeLvl*0.5,tick:0}); }
+    holes.push({x:player.x,y:player.y,life:2.6,r:(46+stats.holeLvl*9)*stats.area*(stats.evoHole?1.6:1),dmg:(1+stats.holeLvl*0.5)*(stats.evoHole?1.8:1),tick:0,evo:stats.evoHole}); }
   for(const h of holes){ h.life-=dt; h.tick-=dt; const doTick=h.tick<=0; if(doTick)h.tick=0.25;
-    for(const e of allTargets()){ if(e===boss)continue; const d=Math.hypot(e.x-h.x,e.y-h.y);
-      if(d<h.r){ const a=Math.atan2(h.y-e.y,h.x-e.x); const pull=Math.min(120,(h.r-d))*dt*3.2; e.x+=Math.cos(a)*pull; e.y+=Math.sin(a)*pull;
-        if(doTick){ hurtEnemy(e,h.dmg,'#c77dff'); if(e.hp<=0)killEnemy(e); } } } }
+    for(const e of allTargets()){ if(e===boss && !h.evo)continue; const d=Math.hypot(e.x-h.x,e.y-h.y);
+      if(d<h.r){ if(e!==boss){ const a=Math.atan2(h.y-e.y,h.x-e.x); const pull=Math.min(120,(h.r-d))*dt*3.2; e.x+=Math.cos(a)*pull; e.y+=Math.sin(a)*pull; }
+        if(doTick){ hurtEnemy(e,h.dmg,'#c77dff'); if(e!==boss&&e.hp<=0)killEnemy(e); if(e===boss&&boss.hp<=0)defeatBoss(); } } } }
   holes=holes.filter(h=>h.life>0);
 }
 function burst(x,y,color,n){for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,s=40+Math.random()*120;
@@ -905,15 +932,26 @@ function update(dt){
       if(e===boss){if(boss.hp<=0)defeatBoss();}else if(e.hp<=0)killEnemy(e);}}
     // aura blocks a projectile if charged; blocking consumes the aura (recharges on a short cd), drone stays
     if(hasShield){ for(const e of enemies){ if(e.isProjectile && e.hp>0 && Math.hypot(e.x-o.x,e.y-o.y)<e.r+o.r+10){
-      e.hp=0; burst(o.x,o.y,'#7dffff',8); o.shieldCd=Math.max(1.0,2.6-stats.projLevel*0.12)*stats.cdr; break; } } }
+      e.hp=0; burst(o.x,o.y,'#7dffff',8); o.shieldCd=Math.max(1.0,2.6-stats.projLevel*0.12)*stats.cdr*(stats.evoOrb?0.5:1); break; } } }
   }
+
+  // shielder aura: mark enemies within range of any live shielder as shielded (40% dmg reduction)
+  const shielders=enemies.filter(e=>e.shields&&e.hp>0&&!e.isProjectile);
+  if(shielders.length){ for(const e of enemies){ if(e.isProjectile){continue;}
+    e.shielded = shielders.some(s=>s!==e && Math.hypot(s.x-e.x,s.y-e.y)<140); } }
+  else { for(const e of enemies) e.shielded=false; }
 
   for(const e of enemies){
     if(e.hitCd>0)e.hitCd-=dt;
     if(e.isProjectile){e.x+=e.vx*dt;e.y+=e.vy*dt;
       if(Math.hypot(e.x-player.x,e.y-player.y)<e.r+player.r){damagePlayer(10);e.hp=0;}continue;}
     const a=Math.atan2(player.y-e.y,player.x-e.x);
-    const sp=e.speed*((e.chill>0)?0.5:1); // frost field slows movement
+    const sp=e.speed*((e.chill>0&&!e.noSlow)?0.5:1); // frost slows movement (juggernaut immune)
+    // summoner: periodically spawns skitterings until killed
+    if(e.summoner){ e.summonT-=dt; if(e.summonT<=0){ e.summonT=3.5;
+      const realCount=enemies.reduce((n,x)=>n+(x.isProjectile?0:1),0);
+      if(realCount<CFG.enemyCap){ const sa=Math.random()*Math.PI*2;
+        makeEnemy('skitterer', e.x+Math.cos(sa)*20, e.y+Math.sin(sa)*20); burst(e.x,e.y,'#EF9F27',6); } } }
     if(e.ranged){const d=Math.hypot(player.x-e.x,player.y-e.y);
       if(d>240){e.x+=Math.cos(a)*sp*dt;e.y+=Math.sin(a)*sp*dt;}
       else if(d<180){e.x-=Math.cos(a)*sp*dt;e.y-=Math.sin(a)*sp*dt;}
@@ -926,7 +964,7 @@ function update(dt){
       }
     } else { e.x+=Math.cos(a)*sp*dt;e.y+=Math.sin(a)*sp*dt; }
     if(Math.hypot(e.x-player.x,e.y-player.y)<e.r+player.r){
-      if(iFrames<=0&&(e.touchCd||0)<=0){damagePlayer(e.type==='brute'?18:e.type==='hulk'?12:e.type==='stalker'?9:7);e.touchCd=0.5;}}
+      if(iFrames<=0&&(e.touchCd||0)<=0){damagePlayer(e.type==='juggernaut'?22:e.type==='brute'?18:e.type==='hulk'?12:e.type==='shielder'?10:e.type==='stalker'?9:7);e.touchCd=0.5;}}
     if(e.touchCd>0)e.touchCd-=dt;
   }
 
@@ -996,8 +1034,12 @@ function update(dt){
 
   if(player.hp<=0&&!gameOver&&!won)endGame();
 }
-function killEnemy(e){ if(e.isNode)return; /* nodes handled in their own loop */
+function killEnemy(e){ if(e.isNode||e.isCore)return; /* nodes + hivemind cores handled separately */
   kills++;gems.push({x:e.x,y:e.y,r:5});burst(e.x,e.y,'#ff7a4f',8);AUDIO.hitEnemy();if(e.splits)spawnSplitlings(e.x,e.y);
+  if(e.bomber){ // explode into a ring of shots
+    const n=10; for(let i=0;i<n;i++){ const a=(i/n)*Math.PI*2;
+      enemies.push({type:'spit',x:e.x,y:e.y,r:6,hp:1,hitCd:0,vx:Math.cos(a)*200,vy:Math.sin(a)*200,isProjectile:true}); }
+    burst(e.x,e.y,'#EF9F27',24); addShake(4); }
   const luck=perkLvl('p_luck')+(stats.luck||0);
   const r=Math.random();
   // cumulative drop table (rarest first)
@@ -1031,11 +1073,17 @@ function detonate(){
 ------------------------------------------------------------ */
 function spawnBoss(){
   const k=LV.bossKind||'core';
-  boss={x:objective.x,y:objective.y-40,r:k==='nexus'?62:k==='reaver'?50:48,hp:LV.bossHp,maxhp:LV.bossHp,
+  const bigR = (k==='omega'||k==='devourer')?70:(k==='nexus'||k==='architect'||k==='mirror')?62:k==='reaver'?50:48;
+  boss={x:objective.x,y:objective.y-40,r:bigR,hp:LV.bossHp,maxhp:LV.bossHp,
     hitCd:0,shootTimer:1.4,spin:0,kind:k,summonTimer:6,
-    beams:[],beamTimer:2,phase:0,phaseTimer:6,charge:0,chargeCd:3};
-  const names={core:'HIVE CORE',twin:'TWIN WARDENS',warden:'THE WARDEN',reaver:'THE REAVER',nexus:'THE NEXUS'};
-  showBanner(names[k]+' AWAKENS',LV.wall); AUDIO.bossWake(); MUSIC.toBoss();
+    beams:[],beamTimer:2,phase:0,phaseTimer:6,charge:0,chargeCd:3,
+    cores:[],walls:[],wallTimer:4,growth:0,clones:[]};
+  // Hivemind: spins up 3 linked satellite cores that must be broken
+  if(k==='hivemind'){ for(let i=0;i<3;i++){ const a=i*(Math.PI*2/3);
+    boss.cores.push({ang:a, x:boss.x+Math.cos(a)*120, y:boss.y+Math.sin(a)*120, r:26, hp:LV.bossHp*0.34, maxhp:LV.bossHp*0.34, dead:false, reviveT:0}); } }
+  const names={core:'HIVE CORE',twin:'TWIN WARDENS',warden:'THE WARDEN',reaver:'THE REAVER',nexus:'THE NEXUS',
+    hivemind:'THE HIVEMIND',architect:'THE ARCHITECT',mirror:'THE MIRROR',devourer:'THE DEVOURER',omega:'THE SINGULARITY'};
+  showBanner((names[k]||'BOSS')+' AWAKENS',LV.wall); AUDIO.bossWake(); MUSIC.toBoss();
 }
 function bossShoot(n,speed,spin,r){for(let i=0;i<n;i++){const ang=(i/n)*Math.PI*2+spin;
   enemies.push({type:'spit',x:boss.x,y:boss.y,r:r||7,hp:1,hitCd:0,vx:Math.cos(ang)*speed,vy:Math.sin(ang)*speed,isProjectile:true});}}
@@ -1072,7 +1120,7 @@ function updateBoss(dt){
     // deep inside the boss body = heavy rapid damage (can't camp its center to farm it)
     if(bd < boss.r*0.6){ if((boss.coreCd||0)<=0){ damagePlayer(boss.kind==='nexus'?40:32); boss.coreCd=0.2; } }
     // edge contact = normal periodic contact damage
-    else if((boss.touchCd||0)<=0){ const cd={core:11,twin:15,warden:16,reaver:20,nexus:24}; damagePlayer(cd[boss.kind]||16);boss.touchCd=0.5; }
+    else if((boss.touchCd||0)<=0){ const cd={core:11,twin:15,warden:16,reaver:20,nexus:24,hivemind:20,architect:22,mirror:24,devourer:28,omega:30}; damagePlayer(cd[boss.kind]||20);boss.touchCd=0.5; }
   }
   if(boss.touchCd>0)boss.touchCd-=dt;
   if(boss.coreCd>0)boss.coreCd-=dt;
@@ -1114,6 +1162,74 @@ function updateBoss(dt){
       for(let i=0;i<2;i++){const ang=Math.random()*Math.PI*2;makeEnemy('stalker',boss.x+Math.cos(ang)*80,boss.y+Math.sin(ang)*80);} } }
     else { if(fire){ boss.shootTimer=1.0; bossShoot(20,120,boss.spin); bossShoot(20,150,boss.spin+0.15); } }
   }
+  else if(boss.kind==='hivemind'){
+    // 3 satellite cores orbit and revive each other; break them then the core is vulnerable
+    let aliveCores=0;
+    for(const c of boss.cores){ if(c.dead){ c.reviveT-=dt;
+        // revived by living cores after a delay unless all are dead
+        if(c.reviveT<=0 && boss.cores.some(o=>!o.dead)){ c.dead=false; c.hp=c.maxhp*0.5; burst(c.x,c.y,'#ff5a6e',20); }
+        continue; }
+      aliveCores++;
+      c.ang+=dt*0.8; c.x=boss.x+Math.cos(c.ang)*120; c.y=boss.y+Math.sin(c.ang)*120;
+      if(fire){ const ca=Math.atan2(player.y-c.y,player.x-c.x);
+        enemies.push({type:'spit',x:c.x,y:c.y,r:6,hp:1,hitCd:0,vx:Math.cos(ca)*150,vy:Math.sin(ca)*150,isProjectile:true}); }
+    }
+    if(fire) boss.shootTimer=1.3;
+    boss.coresAlive=aliveCores;
+    // core only takes damage once all satellites are down (handled in hit code via coresAlive)
+  }
+  else if(boss.kind==='architect'){
+    // builds walls that box you in, plus aimed volleys
+    if(fire){ boss.shootTimer=1.1; bossAimed(5,0.8,190); }
+    boss.wallTimer-=dt;
+    if(boss.wallTimer<=0){ boss.wallTimer=3.5;
+      // spawn a wall segment near the player to force repositioning
+      const wa=Math.random()*Math.PI*2, wd=140+Math.random()*80;
+      boss.walls.push({x:player.x+Math.cos(wa)*wd, y:player.y+Math.sin(wa)*wd, w:90+Math.random()*70, ang:Math.random()*Math.PI, life:6, build:0.6});
+      showBanner('WALL RAISED','#ffd23f'); }
+    for(const w of boss.walls){ w.life-=dt; if(w.build>0)w.build-=dt;
+      if(w.build<=0 && iFrames<=0){ // solid wall damages on contact
+        const dx=player.x-w.x, dy=player.y-w.y; const ca=Math.cos(-w.ang), sa=Math.sin(-w.ang);
+        const lx=dx*ca-dy*sa, ly=dx*sa+dy*ca;
+        if(Math.abs(lx)<w.w/2 && Math.abs(ly)<10+player.r && (boss.wallHitCd||0)<=0){ damagePlayer(12); boss.wallHitCd=0.4; } } }
+    if(boss.wallHitCd>0)boss.wallHitCd-=dt;
+    boss.walls=boss.walls.filter(w=>w.life>0);
+  }
+  else if(boss.kind==='mirror'){
+    // spawns clones that mimic your movement and fire back; plus spiral
+    if(fire){ boss.shootTimer=0.6; bossShoot(5,150,boss.spin*1.8); }
+    boss.summonTimer-=dt;
+    if(boss.summonTimer<=0 && boss.clones.length<3){ boss.summonTimer=4;
+      const ca=Math.random()*Math.PI*2; boss.clones.push({x:boss.x+Math.cos(ca)*100,y:boss.y+Math.sin(ca)*100,fireT:1.5});
+      showBanner('MIRROR CLONE','#3fffe7'); }
+    for(const c of boss.clones){ const ca=Math.atan2(player.y-c.y,player.x-c.x);
+      c.x+=Math.cos(ca)*60*dt; c.y+=Math.sin(ca)*60*dt; c.fireT-=dt;
+      if(c.fireT<=0){ c.fireT=1.8; enemies.push({type:'spit',x:c.x,y:c.y,r:6,hp:1,hitCd:0,vx:Math.cos(ca)*200,vy:Math.sin(ca)*200,isProjectile:true}); }
+      if(Math.hypot(c.x-player.x,c.y-player.y)<14+player.r && iFrames<=0 && (c.hitCd||0)<=0){ damagePlayer(10); c.hitCd=0.5; }
+      if(c.hitCd>0)c.hitCd-=dt; }
+  }
+  else if(boss.kind==='devourer'){
+    // grows by eating your gems; bigger = harder-hitting. Aimed spreads + swarm.
+    boss.growth = Math.min(1.5, boss.growth + dt*0.02); // slowly grows over the fight
+    boss.r = 70 * (1 + boss.growth*0.3);
+    if(fire){ boss.shootTimer=0.9; bossAimed(6+Math.floor(boss.growth*3),1.0,180); }
+    boss.summonTimer-=dt;
+    if(boss.summonTimer<=0){ boss.summonTimer=3.5;
+      for(let i=0;i<2;i++){const ang=Math.random()*Math.PI*2;makeEnemy('bomber',boss.x+Math.cos(ang)*90,boss.y+Math.sin(ang)*90);} }
+  }
+  else if(boss.kind==='omega'){
+    // FINAL: cycles through every prior mechanic, phase by phase
+    boss.phaseTimer-=dt;
+    if(boss.phaseTimer<=0){ boss.phase=(boss.phase+1)%5; boss.phaseTimer=7;
+      const ph=['RADIAL','SPIRAL','LANCE','SWARM','NOVA'][boss.phase]; showBanner('SINGULARITY: '+ph,'#ffffff'); }
+    if(boss.phase===0){ if(fire){ boss.shootTimer=1.0; bossShoot(14,130,boss.spin); } }
+    else if(boss.phase===1){ if(fire){ boss.shootTimer=0.4; bossShoot(4,150,boss.spin*2.4); bossShoot(4,170,-boss.spin*2.4); } }
+    else if(boss.phase===2){ boss.beamTimer-=dt; if(boss.beamTimer<=0){ boss.beamTimer=1.3;
+      const base=Math.atan2(player.y-boss.y,player.x-boss.x); fireBeam(base,1.3); fireBeam(base+2.1,1.3); fireBeam(base-2.1,1.3);} }
+    else if(boss.phase===3){ boss.summonTimer-=dt; if(boss.summonTimer<=0){ boss.summonTimer=1.5;
+      for(let i=0;i<2;i++){const ang=Math.random()*Math.PI*2;makeEnemy(Math.random()<0.5?'stalker':'bomber',boss.x+Math.cos(ang)*80,boss.y+Math.sin(ang)*80);} } }
+    else { if(fire){ boss.shootTimer=1.0; bossShoot(24,120,boss.spin); bossShoot(24,150,boss.spin+0.13); } }
+  }
 
   updateBeams(dt);
 }
@@ -1129,38 +1245,48 @@ function evoBanner(name){ showBanner('◆ EVOLVED: '+name,'#fff2a0'); burst(play
 const UPGRADES=[
   // --- core weapons (evolve at cap) ---
   {id:'proj',ico:'🎯',name:'Bolt Array',desc:'Extra bolt per volley. Also boosts drone damage.',kind:'wpn',
-   lvl:()=> stats.evoProj?'MAXED — Prism Array':(stats.projLevel>=EVO_CAP.proj?'EVOLVE → Prism Array':`Bolts: ${stats.projectiles} → ${stats.projectiles+1}`),
+   lvl:()=> stats.evoProj?`◆ Prism Array Lv ${stats.projLevel}→${stats.projLevel+1}`:(stats.projLevel>=EVO_CAP.proj?'EVOLVE → Prism Array':`Bolts: ${stats.projectiles} → ${stats.projectiles+1}`),
    apply(){ stats.projectiles++;stats.projLevel++;orbs.forEach(o=>o.dmg=1+stats.projLevel*0.5);
      if(stats.projLevel>=EVO_CAP.proj&&!stats.evoProj){stats.evoProj=true;evoBanner('PRISM ARRAY');} }},
   {id:'lightning',ico:'⚡',name:'Chain Lightning',desc:'Zaps a nearby enemy and arcs to others close by. Levels add jumps.',kind:'wpn',
-   lvl:()=> stats.evoLight?'MAXED — Tesla Storm':stats.lightningLvl===0?'Unlock (chains 1)':(stats.lightningLvl>=EVO_CAP.lightning?'EVOLVE → Tesla Storm':`Chains: ${stats.lightningLvl+1} → ${stats.lightningLvl+2}`),
+   lvl:()=> stats.evoLight?`◆ Tesla Storm Lv ${stats.lightningLvl}→${stats.lightningLvl+1}`:stats.lightningLvl===0?'Unlock (chains 1)':(stats.lightningLvl>=EVO_CAP.lightning?'EVOLVE → Tesla Storm':`Chains: ${stats.lightningLvl+1} → ${stats.lightningLvl+2}`),
    apply(){ stats.lightningLvl++;
      if(stats.lightningLvl>=EVO_CAP.lightning&&!stats.evoLight){stats.evoLight=true;evoBanner('TESLA STORM');} }},
   {id:'pulse',ico:'💥',name:'Pulse Nova',desc:'A shockwave bursts from you periodically, hitting nearby enemies.',kind:'wpn',
-   lvl:()=> stats.evoPulse?'MAXED — Singularity':stats.pulseLvl===0?'Unlock':(stats.pulseLvl>=EVO_CAP.pulse?'EVOLVE → Singularity':`Pulse Lv ${stats.pulseLvl} → ${stats.pulseLvl+1}`),
+   lvl:()=> stats.evoPulse?`◆ Singularity Lv ${stats.pulseLvl}→${stats.pulseLvl+1}`:stats.pulseLvl===0?'Unlock':(stats.pulseLvl>=EVO_CAP.pulse?'EVOLVE → Singularity':`Pulse Lv ${stats.pulseLvl} → ${stats.pulseLvl+1}`),
    apply(){ stats.pulseLvl++;
      if(stats.pulseLvl>=EVO_CAP.pulse&&!stats.evoPulse){stats.evoPulse=true;evoBanner('SINGULARITY');} }},
   {id:'orb',ico:'🛡️',name:'Defense Drone',desc:'Orbits and damages enemies. Its aura blocks a projectile, then recharges.',kind:'wpn',
-   lvl:()=> stats.orbCount>=6?'MAXED':`Drones: ${stats.orbCount} → ${stats.orbCount+1}`,cap:()=>stats.orbCount>=6,apply(){stats.orbCount++;addOrb();}},
+   lvl:()=> stats.evoOrb?`◆ Aegis Array Lv ${stats.orbCount}→${stats.orbCount+1}`:(stats.orbCount>=6?'EVOLVE → Aegis Array':`Drones: ${stats.orbCount} → ${stats.orbCount+1}`),
+   apply(){stats.orbCount++;addOrb(); if(stats.orbCount>=6&&!stats.evoOrb){stats.evoOrb=true;evoBanner('AEGIS ARRAY');}}},
   // --- new weapons ---
   {id:'blade',ico:'🌀',name:'Orbital Blade',desc:'A neon blade sweeps a wide arc around you, slicing what it passes.',kind:'wpn',
-   lvl:()=> stats.bladeLvl>=6?'MAXED':stats.bladeLvl===0?'Unlock':`Blade Lv ${stats.bladeLvl} → ${stats.bladeLvl+1}`,cap:()=>stats.bladeLvl>=6,apply(){stats.bladeLvl++;}},
+   lvl:()=> stats.evoBlade?`◆ Ronin Halo Lv ${stats.bladeLvl}→${stats.bladeLvl+1}`:stats.bladeLvl===0?'Unlock':(stats.bladeLvl>=6?'EVOLVE → Ronin Halo':`Blade Lv ${stats.bladeLvl} → ${stats.bladeLvl+1}`),
+   apply(){stats.bladeLvl++; if(stats.bladeLvl>=6&&!stats.evoBlade){stats.evoBlade=true;evoBanner('RONIN HALO');}}},
   {id:'wisp',ico:'✳️',name:'Homing Wisps',desc:'Seeker sparks that curve toward enemies. More at higher levels.',kind:'wpn',
-   lvl:()=> stats.wispLvl>=6?'MAXED':stats.wispLvl===0?'Unlock':`Wisp Lv ${stats.wispLvl} → ${stats.wispLvl+1}`,cap:()=>stats.wispLvl>=6,apply(){stats.wispLvl++;}},
+   lvl:()=> stats.evoWisp?`◆ Spirit Swarm Lv ${stats.wispLvl}→${stats.wispLvl+1}`:stats.wispLvl===0?'Unlock':(stats.wispLvl>=6?'EVOLVE → Spirit Swarm':`Wisp Lv ${stats.wispLvl} → ${stats.wispLvl+1}`),
+   apply(){stats.wispLvl++; if(stats.wispLvl>=6&&!stats.evoWisp){stats.evoWisp=true;evoBanner('SPIRIT SWARM');}}},
   {id:'frost',ico:'❄️',name:'Frost Field',desc:'An aura that chills nearby enemies and slows enemy projectiles.',kind:'wpn',
-   lvl:()=> stats.frostLvl>=6?'MAXED':stats.frostLvl===0?'Unlock':`Frost Lv ${stats.frostLvl} → ${stats.frostLvl+1}`,cap:()=>stats.frostLvl>=6,apply(){stats.frostLvl++;}},
+   lvl:()=> stats.evoFrost?`◆ Absolute Zero Lv ${stats.frostLvl}→${stats.frostLvl+1}`:stats.frostLvl===0?'Unlock':(stats.frostLvl>=6?'EVOLVE → Absolute Zero':`Frost Lv ${stats.frostLvl} → ${stats.frostLvl+1}`),
+   apply(){stats.frostLvl++; if(stats.frostLvl>=6&&!stats.evoFrost){stats.evoFrost=true;evoBanner('ABSOLUTE ZERO');}}},
   {id:'mine',ico:'💣',name:'Mine Layer',desc:'Drop proximity mines behind you as you move. Rewards kiting.',kind:'wpn',
-   lvl:()=> stats.mineLvl>=6?'MAXED':stats.mineLvl===0?'Unlock':`Mine Lv ${stats.mineLvl} → ${stats.mineLvl+1}`,cap:()=>stats.mineLvl>=6,apply(){stats.mineLvl++;}},
+   lvl:()=> stats.evoMine?`◆ Cluster Field Lv ${stats.mineLvl}→${stats.mineLvl+1}`:stats.mineLvl===0?'Unlock':(stats.mineLvl>=6?'EVOLVE → Cluster Field':`Mine Lv ${stats.mineLvl} → ${stats.mineLvl+1}`),
+   apply(){stats.mineLvl++; if(stats.mineLvl>=6&&!stats.evoMine){stats.evoMine=true;evoBanner('CLUSTER FIELD');}}},
   {id:'beam',ico:'📡',name:'Beam Lance',desc:'Pulses a short beam at enemies on a timer. More beams at Lv3/Lv5; spins at Lv5.',kind:'wpn',
-   lvl:()=> stats.beamLvl>=6?'MAXED':stats.beamLvl===0?'Unlock':`Lv ${stats.beamLvl} → ${stats.beamLvl+1}`,cap:()=>stats.beamLvl>=6,apply(){stats.beamLvl++;}},
+   lvl:()=> stats.evoBeam?`◆ Prism Storm Lv ${stats.beamLvl}→${stats.beamLvl+1}`:stats.beamLvl===0?'Unlock':(stats.beamLvl>=6?'EVOLVE → Prism Storm':`Lv ${stats.beamLvl} → ${stats.beamLvl+1}`),
+   apply(){stats.beamLvl++; if(stats.beamLvl>=6&&!stats.evoBeam){stats.evoBeam=true;evoBanner('PRISM STORM');}}},
   {id:'scatter',ico:'🔫',name:'Scatter Burst',desc:'A short-range shotgun spread in your facing direction. Levels add pellets + spread.',kind:'wpn',
-   lvl:()=> stats.scatterLvl>=6?'MAXED':stats.scatterLvl===0?'Unlock':`Scatter Lv ${stats.scatterLvl} → ${stats.scatterLvl+1}`,cap:()=>stats.scatterLvl>=6,apply(){stats.scatterLvl++;}},
+   lvl:()=> stats.evoScatter?`◆ Flak Cannon Lv ${stats.scatterLvl}→${stats.scatterLvl+1}`:stats.scatterLvl===0?'Unlock':(stats.scatterLvl>=6?'EVOLVE → Flak Cannon':`Scatter Lv ${stats.scatterLvl} → ${stats.scatterLvl+1}`),
+   apply(){stats.scatterLvl++; if(stats.scatterLvl>=6&&!stats.evoScatter){stats.evoScatter=true;evoBanner('FLAK CANNON');}}},
   {id:'disc',ico:'🌀',name:'Boomerang Disc',desc:'A glaive that flies out and returns, slicing both ways. Levels add discs.',kind:'wpn',
-   lvl:()=> stats.discLvl>=6?'MAXED':stats.discLvl===0?'Unlock':`Disc Lv ${stats.discLvl} → ${stats.discLvl+1}`,cap:()=>stats.discLvl>=6,apply(){stats.discLvl++;}},
+   lvl:()=> stats.evoDisc?`◆ Storm Discs Lv ${stats.discLvl}→${stats.discLvl+1}`:stats.discLvl===0?'Unlock':(stats.discLvl>=6?'EVOLVE → Storm Discs':`Disc Lv ${stats.discLvl} → ${stats.discLvl+1}`),
+   apply(){stats.discLvl++; if(stats.discLvl>=6&&!stats.evoDisc){stats.evoDisc=true;evoBanner('STORM DISCS');}}},
   {id:'turret',ico:'🛰️',name:'Turret Drone',desc:'Deploy auto-turrets that fire at enemies before expiring. Levels deploy more.',kind:'wpn',
-   lvl:()=> stats.turretLvl>=6?'MAXED':stats.turretLvl===0?'Unlock':`Turret Lv ${stats.turretLvl} → ${stats.turretLvl+1}`,cap:()=>stats.turretLvl>=6,apply(){stats.turretLvl++;}},
+   lvl:()=> stats.evoTurret?`◆ War Platform Lv ${stats.turretLvl}→${stats.turretLvl+1}`:stats.turretLvl===0?'Unlock':(stats.turretLvl>=6?'EVOLVE → War Platform':`Turret Lv ${stats.turretLvl} → ${stats.turretLvl+1}`),
+   apply(){stats.turretLvl++; if(stats.turretLvl>=6&&!stats.evoTurret){stats.evoTurret=true;evoBanner('WAR PLATFORM');}}},
   {id:'hole',ico:'🕳️',name:'Black Hole',desc:'Spawns a singularity that pulls in and crushes nearby enemies. Levels grow its reach.',kind:'wpn',
-   lvl:()=> stats.holeLvl>=6?'MAXED':stats.holeLvl===0?'Unlock':`Hole Lv ${stats.holeLvl} → ${stats.holeLvl+1}`,cap:()=>stats.holeLvl>=6,apply(){stats.holeLvl++;}},
+   lvl:()=> stats.evoHole?`◆ Event Horizon Lv ${stats.holeLvl}→${stats.holeLvl+1}`:stats.holeLvl===0?'Unlock':(stats.holeLvl>=6?'EVOLVE → Event Horizon':`Hole Lv ${stats.holeLvl} → ${stats.holeLvl+1}`),
+   apply(){stats.holeLvl++; if(stats.holeLvl>=6&&!stats.evoHole){stats.evoHole=true;evoBanner('EVENT HORIZON');}}},
   // --- passive stats ---
   {id:'damage',ico:'🔺',name:'Weapon Power',desc:'All weapons hit harder.',kind:'pas',
    lvl:()=>`Dmg: ${stats.damage} → ${stats.damage+1}`,apply(){stats.damage++;}},
@@ -1418,7 +1544,18 @@ function draw(){
     else if(e.type==='brute'){   poly(e.x,e.y,e.r,8,t*0.3,'rgba(255,120,40,0.14)','#ff7828',18);
                                  poly(e.x,e.y,e.r*0.5,8,-t*0.6,'','#ffb070',0); }
     else if(e.type==='weaver')   poly(e.x,e.y,e.r,6,t*3,'rgba(230,80,255,0.14)','#e050ff',13);
+    else if(e.type==='shielder'){poly(e.x,e.y,e.r,6,t*0.4,'rgba(237,147,177,0.14)','#ED93B1',14);
+                                 ctx.globalAlpha=0.3;neon('#ED93B1',10);ctx.strokeStyle='#ED93B1';ctx.lineWidth=2;ctx.beginPath();ctx.arc(e.x,e.y,140,0,7);ctx.stroke();noNeon();ctx.globalAlpha=1; }
+    else if(e.type==='bomber'){  poly(e.x,e.y,e.r,8,t*1.2,'rgba(239,159,39,0.16)','#EF9F27',14);
+                                 ctx.fillStyle='#FAC775';ctx.beginPath();ctx.arc(e.x,e.y,e.r*0.4,0,7);ctx.fill(); }
+    else if(e.type==='summoner'){poly(e.x,e.y,e.r,5,t*0.8,'rgba(239,159,39,0.14)','#EFB427',15);
+                                 poly(e.x,e.y,e.r*0.55,5,-t,'', '#FAD775',0); }
+    else if(e.type==='juggernaut'){poly(e.x,e.y,e.r,6,t*0.2,'rgba(226,75,74,0.16)','#E24B4A',20);
+                                 poly(e.x,e.y,e.r*0.6,6,-t*0.3,'','#F09595',0);
+                                 poly(e.x,e.y,e.r*0.3,6,t*0.5,'','#ffffff',0); }
     else                         poly(e.x,e.y,e.r,3,t*1.2,'rgba(255,61,139,0.14)','#ff3d8b',12);
+    // shielded enemies get a faint protective ring
+    if(e.shielded&&!e.shields){ ctx.globalAlpha=0.25;ctx.strokeStyle='#ED93B1';ctx.lineWidth=2;ctx.beginPath();ctx.arc(e.x,e.y,e.r+4,0,7);ctx.stroke();ctx.globalAlpha=1; }
   }
 
   if(boss){const p=0.6+Math.sin(performance.now()/200)*0.15;const k=boss.kind;
@@ -1445,6 +1582,36 @@ function draw(){
       const chg=boss.charge>0;neon(chg?'#fff':LV.wall,chg?34:26);
       poly(boss.x,boss.y,boss.r,4,boss.spin*0.5,chg?'rgba(255,255,255,0.3)':`rgba(255,138,46,${0.12+0.1*p})`,chg?'#fff':LV.wall,0);
       poly(boss.x,boss.y,boss.r*0.55,4,-boss.spin*0.8+0.7,'',LV.accent2,0);noNeon(); }
+    else if(k==='hivemind'){ // central core + orbiting satellite cores linked by energy
+      for(const c of boss.cores){ if(c.dead)continue;
+        ctx.strokeStyle=LV.accent2;ctx.lineWidth=2;ctx.globalAlpha=0.4;ctx.beginPath();ctx.moveTo(boss.x,boss.y);ctx.lineTo(c.x,c.y);ctx.stroke();ctx.globalAlpha=1; }
+      const shielded=boss.cores&&boss.cores.some(c=>!c.dead);
+      neon(shielded?'#6fe9ff':LV.wall,26);poly(boss.x,boss.y,boss.r,6,boss.spin*0.4,`rgba(208,48,74,${0.14+0.1*p})`,shielded?'#6fe9ff':LV.wall,0);
+      poly(boss.x,boss.y,boss.r*0.4,6,-boss.spin,'',LV.accent2,0);noNeon();
+      for(const c of boss.cores){ if(c.dead)continue;
+        neon(LV.wall,16);poly(c.x,c.y,c.r,6,-boss.spin,`rgba(208,48,74,0.2)`,'#ff8fa0',0);
+        ctx.strokeStyle='#ff5a6e';ctx.lineWidth=2;ctx.beginPath();ctx.arc(c.x,c.y,c.r+4,-Math.PI/2,-Math.PI/2+Math.PI*2*(c.hp/c.maxhp));ctx.stroke();noNeon(); } }
+    else if(k==='architect'){ // walls + boxy core
+      for(const w of boss.walls){ ctx.save();ctx.translate(w.x,w.y);ctx.rotate(w.ang);
+        const building=w.build>0; ctx.globalAlpha=building?0.4:0.9;
+        neon('#ffd23f',building?6:12);ctx.fillStyle='rgba(208,176,47,0.5)';ctx.fillRect(-w.w/2,-6,w.w,12);
+        ctx.strokeStyle='#ffe79b';ctx.lineWidth=2;ctx.strokeRect(-w.w/2,-6,w.w,12);noNeon();ctx.restore();ctx.globalAlpha=1; }
+      neon(LV.wall,26);ctx.save();ctx.translate(boss.x,boss.y);ctx.rotate(boss.spin*0.3);
+      ctx.fillStyle=`rgba(208,176,47,${0.15+0.1*p})`;ctx.strokeStyle=LV.wall;ctx.lineWidth=3;
+      ctx.fillRect(-boss.r*0.7,-boss.r*0.7,boss.r*1.4,boss.r*1.4);ctx.strokeRect(-boss.r*0.7,-boss.r*0.7,boss.r*1.4,boss.r*1.4);ctx.restore();noNeon(); }
+    else if(k==='mirror'){ // reflective diamond + clones
+      for(const c of boss.clones){ neon('#3fffe7',14);poly(c.x,c.y,13,4,boss.spin,'rgba(63,255,231,0.2)','#a0fff5',0);noNeon(); }
+      neon(LV.wall,28);poly(boss.x,boss.y,boss.r,4,boss.spin*0.5,`rgba(47,208,192,${0.14+0.1*p})`,LV.wall,0);
+      poly(boss.x,boss.y,boss.r*0.5,4,-boss.spin+0.8,'',LV.accent2,0);noNeon(); }
+    else if(k==='devourer'){ // pulsing maw that grows
+      neon(LV.wall,30);poly(boss.x,boss.y,boss.r,7,boss.spin*0.3,`rgba(208,122,47,${0.16+0.12*p})`,LV.wall,0);
+      poly(boss.x,boss.y,boss.r*0.6,7,-boss.spin*0.8,'',LV.accent2,0);
+      ctx.fillStyle='#1a0a04';ctx.beginPath();ctx.arc(boss.x,boss.y,boss.r*0.3*(1+0.1*Math.sin(performance.now()/200)),0,7);ctx.fill();noNeon(); }
+    else if(k==='omega'){ // final: white phase-shifting star
+      const phCol=['#ffffff','#bfe6ff','#ff8fd1','#a0ffcf','#ffe14f'][boss.phase];
+      neon(phCol,34);poly(boss.x,boss.y,boss.r,12,boss.spin*0.3,`rgba(180,200,255,${0.15+0.12*p})`,phCol,0);
+      poly(boss.x,boss.y,boss.r*0.7,12,-boss.spin*0.7,'',LV.accent2,0);
+      poly(boss.x,boss.y,boss.r*0.35,12,boss.spin*1.4,phCol,'#fff',0);noNeon(); }
     else { // nexus: phase-colored octagon with triple rings
       const phCol=['#c77dff','#e3c4ff','#ff8fd1','#fff2a0'][boss.phase];
       neon(phCol,30);poly(boss.x,boss.y,boss.r,8,boss.spin*0.3,`rgba(160,60,220,${0.15*p+0.12})`,phCol,0);
