@@ -184,7 +184,7 @@
     </div>
     <div class="ctrls">WASD / ARROWS — MOVE &nbsp;·&nbsp; SPACE — DASH<br>
       Collect ◆ Data Cores in runs · spend them on permanent upgrades · clear sectors to go deeper</div>
-    <div id="version" style="margin-top:14px;color:#3a4560;font-size:11px;letter-spacing:1px">v1.3</div>
+    <div id="version" style="margin-top:14px;color:#3a4560;font-size:11px;letter-spacing:1px">v1.4</div>
   </div>
 </div></div>
 
@@ -518,7 +518,7 @@ function reset(){
          bladeLvl:0, wispLvl:0, frostLvl:0, mineLvl:0,
          beamLvl:0, scatterLvl:0, discLvl:0, turretLvl:0, holeLvl:0,
          // passives (multipliers/bonuses)
-         crit:0, cdr:1, area:1, projSpeed:1, xpGain:1, magnet:1, luck:0};
+         crit:0, cdr:1, area:1, projSpeed:1, xpGain:1, magnet:1, luck:0, deflect:0};
   lightningTimer=0;pulseTimer=0;regenTimer=0;
   bladeAng=0;wispTimer=0;frostTimer=0;mineTimer=0;wisps=[];mines=[];frostZones=[];blade=null;
   beams2=[];beamTimer=0;scatterTimer=0;discTimer=0;discs=[];turretTimer=0;turrets=[];holeTimer=0;holes=[];beamSpin=0;
@@ -552,6 +552,7 @@ function floatNum(x,y,val,color,big){floaters.push({x,y:y-10,vy:-38,life:0.8,val
 function damagePlayer(amt){
   if(iFrames>0)return;
   if(DEV_GOD)return; /* DEV: god mode blocks all damage — REMOVE BEFORE SHIPPING */
+  if(stats&&stats.deflect&&Math.random()<stats.deflect){ floatNum(player.x,player.y-player.r,0,'#6fe9ff'); return; } // dodged
   if(stats&&stats.armor)amt=amt*(1-Math.min(0.5,stats.armor)); // % reduction, hard-capped at 50%
   AUDIO.hurt();
   player.hp-=amt;hitFlash=0.18;addShake(Math.min(10,amt*0.5+2));
@@ -565,7 +566,10 @@ function tryDash(){
   if(gameOver||won||paused||!running||dashCd>0)return;
   let dx=(keys['d']||keys['arrowright']?1:0)-(keys['a']||keys['arrowleft']?1:0);
   let dy=(keys['s']||keys['arrowdown']?1:0)-(keys['w']||keys['arrowup']?1:0);
-  if(dx===0&&dy===0)dx=player.facing;
+  // touch joystick contributes direction too
+  const tv=touchVec(); if(tv.x||tv.y){ dx=tv.x; dy=tv.y; }
+  // if no live input, dash in the last movement direction (not just left/right)
+  if(dx===0&&dy===0){ dx=Math.cos(moveAng); dy=Math.sin(moveAng); }
   const m=Math.hypot(dx,dy)||1;dashDir={x:dx/m,y:dy/m};dashTime=CFG.dash.dur;iFrames=CFG.dash.iframes;dashCd=CFG.dash.cd;AUDIO.dash();
 }
 
@@ -687,6 +691,13 @@ function updateFrost(dt){
   frostTimer-=dt; const tick=frostTimer<=0; if(tick)frostTimer=0.4;
   for(const e of allTargets()){ if(e===boss)continue; const d=Math.hypot(e.x-player.x,e.y-player.y);
     if(d<radius+e.r){ e.chill=0.5; if(tick){hurtEnemy(e,dmg,'#bfe8ff'); if(e.hp<=0)killEnemy(e);} } }
+  // slow enemy projectiles caught in the field (defensive help against late-game bullet hell)
+  const slow=1-Math.min(0.7,0.3+stats.frostLvl*0.08); // stronger slow at higher levels
+  for(const e of enemies){ if(!e.isProjectile)continue;
+    const d=Math.hypot(e.x-player.x,e.y-player.y);
+    if(d<radius){ if(!e.chilled){ e.vx*=slow; e.vy*=slow; e.chilled=true; } }
+    else if(e.chilled){ e.vx/=slow; e.vy/=slow; e.chilled=false; } // restore speed on exit
+  }
 }
 // Mine Layer: drops proximity mines behind the player as they move
 function updateMines(dt){
@@ -865,10 +876,19 @@ function update(dt){
   updateBeam(dt); updateScatter(dt); updateDiscs(dt); updateTurrets(dt); updateHoles(dt);
   for(const e of enemies){if(e.chill>0)e.chill-=dt;}
 
-  for(const o of orbs){o.ang+=dt*2.6;o.x=player.x+Math.cos(o.ang)*52;o.y=player.y+Math.sin(o.ang)*52;
+  for(const o of orbs){
+    o.ang+=dt*2.6;
+    // respawn timer if this drone was consumed blocking a projectile
+    if(o.down>0){ o.down-=dt; o.x=-9999; o.y=-9999; continue; }
+    o.x=player.x+Math.cos(o.ang)*104; o.y=player.y+Math.sin(o.ang)*104; // 2x orbit distance
+    // damage enemies it touches
     for(const e of allTargets()){if(e.hp>0&&Math.hypot(e.x-o.x,e.y-o.y)<e.r+o.r&&(e.hitCd||0)<=0){
       hurtEnemy(e,o.dmg,'#37f6ff');e.hitCd=0.25;burst(o.x,o.y,'#37f6ff',4);
-      if(e===boss){if(boss.hp<=0)defeatBoss();}else if(e.hp<=0)killEnemy(e);}}}
+      if(e===boss){if(boss.hp<=0)defeatBoss();}else if(e.hp<=0)killEnemy(e);}}
+    // block enemy projectiles: destroy the shot, then this drone goes down and respawns (respawn scales with attack speed)
+    for(const e of enemies){ if(e.isProjectile && e.hp>0 && Math.hypot(e.x-o.x,e.y-o.y)<e.r+o.r+3){
+      e.hp=0; burst(o.x,o.y,'#7dffff',8); o.down=Math.max(1.2,3.2-stats.projLevel*0.15)*stats.cdr; break; } }
+  }
 
   for(const e of enemies){
     if(e.hitCd>0)e.hitCd-=dt;
@@ -1102,14 +1122,14 @@ const UPGRADES=[
    lvl:()=> stats.evoPulse?'MAXED — Singularity':stats.pulseLvl===0?'Unlock':(stats.pulseLvl>=EVO_CAP.pulse?'EVOLVE → Singularity':`Pulse Lv ${stats.pulseLvl} → ${stats.pulseLvl+1}`),
    apply(){ stats.pulseLvl++;
      if(stats.pulseLvl>=EVO_CAP.pulse&&!stats.evoPulse){stats.evoPulse=true;evoBanner('SINGULARITY');} }},
-  {id:'orb',ico:'🛡️',name:'Defense Drone',desc:'A node that orbits you and shreds anything it touches.',kind:'wpn',
+  {id:'orb',ico:'🛡️',name:'Defense Drone',desc:'Orbits you, damages enemies, and blocks a projectile (then recharges).',kind:'wpn',
    lvl:()=> stats.orbCount>=6?'MAXED':`Drones: ${stats.orbCount} → ${stats.orbCount+1}`,cap:()=>stats.orbCount>=6,apply(){stats.orbCount++;addOrb();}},
   // --- new weapons ---
   {id:'blade',ico:'🌀',name:'Orbital Blade',desc:'A neon blade sweeps a wide arc around you, slicing what it passes.',kind:'wpn',
    lvl:()=> stats.bladeLvl>=6?'MAXED':stats.bladeLvl===0?'Unlock':`Blade Lv ${stats.bladeLvl} → ${stats.bladeLvl+1}`,cap:()=>stats.bladeLvl>=6,apply(){stats.bladeLvl++;}},
   {id:'wisp',ico:'✳️',name:'Homing Wisps',desc:'Seeker sparks that curve toward enemies. More at higher levels.',kind:'wpn',
    lvl:()=> stats.wispLvl>=6?'MAXED':stats.wispLvl===0?'Unlock':`Wisp Lv ${stats.wispLvl} → ${stats.wispLvl+1}`,cap:()=>stats.wispLvl>=6,apply(){stats.wispLvl++;}},
-  {id:'frost',ico:'❄️',name:'Frost Field',desc:'An aura that slows and steadily chills nearby enemies.',kind:'wpn',
+  {id:'frost',ico:'❄️',name:'Frost Field',desc:'An aura that chills nearby enemies and slows enemy projectiles.',kind:'wpn',
    lvl:()=> stats.frostLvl>=6?'MAXED':stats.frostLvl===0?'Unlock':`Frost Lv ${stats.frostLvl} → ${stats.frostLvl+1}`,cap:()=>stats.frostLvl>=6,apply(){stats.frostLvl++;}},
   {id:'mine',ico:'💣',name:'Mine Layer',desc:'Drop proximity mines behind you as you move. Rewards kiting.',kind:'wpn',
    lvl:()=> stats.mineLvl>=6?'MAXED':stats.mineLvl===0?'Unlock':`Mine Lv ${stats.mineLvl} → ${stats.mineLvl+1}`,cap:()=>stats.mineLvl>=6,apply(){stats.mineLvl++;}},
@@ -1144,6 +1164,8 @@ const UPGRADES=[
    lvl:()=>`Speed: ${Math.round(player.speed)} → ${Math.round(player.speed+20)}`,apply(){player.speed+=20;}},
   {id:'armor',ico:'🧱',name:'Plating',desc:'Reduce all incoming damage by a percentage (caps at 50%).',kind:'pas',
    lvl:()=> stats.armor>=0.5?'MAXED (50%)':`Damage taken −${Math.round(stats.armor*100)}% → −${Math.round(Math.min(0.5,stats.armor+0.1)*100)}%`,cap:()=>stats.armor>=0.5,apply(){stats.armor=Math.min(0.5,stats.armor+0.1);}},
+  {id:'deflect',ico:'🌀',name:'Deflector',desc:'Chance to completely negate an incoming hit (caps at 40%).',kind:'pas',
+   lvl:()=> stats.deflect>=0.4?'MAXED (40%)':`Dodge ${Math.round((stats.deflect||0)*100)}% → ${Math.round(Math.min(0.4,(stats.deflect||0)+0.08)*100)}%`,cap:()=>stats.deflect>=0.4,apply(){stats.deflect=Math.min(0.4,(stats.deflect||0)+0.08);}},
   {id:'maxhp',ico:'❤️',name:'Max Integrity',desc:'+25 max HP and restore to full.',kind:'pas',
    lvl:()=>`HP: ${player.maxhp} → ${player.maxhp+25}`,apply(){player.maxhp+=25;player.hp=player.maxhp;}},
   {id:'regen',ico:'✨',name:'Nanite Regen',desc:'Slowly recover integrity over time.',kind:'pas',
@@ -1157,7 +1179,7 @@ function isOwned(u){ // has the player already invested in this?
     case'turret':return stats.turretLvl>0;case'hole':return stats.holeLvl>0;
     case'proj':return true;default:return false;}
 }
-function addOrb(){const dmg=1+stats.projLevel*0.5;orbs.push({ang:0,x:player.x,y:player.y,r:9,dmg});orbs.forEach((o,i)=>o.ang=i*(Math.PI*2/orbs.length));}
+function addOrb(){const dmg=1+stats.projLevel*0.5;orbs.push({ang:0,x:player.x,y:player.y,r:9,dmg,down:0});orbs.forEach((o,i)=>o.ang=i*(Math.PI*2/orbs.length));}
 function drawUpgradeCards(){
   // build weighted pool: skip maxed; favor owned weapons & unowned weapons over generic passives
   const avail=UPGRADES.filter(u=>!(u.cap&&u.cap()));
@@ -1382,8 +1404,9 @@ function draw(){
     ctx.fillStyle='#301020';ctx.fillRect(boss.x-52,boss.y-boss.r-20,104,8);
     neon(LV.wall,10);ctx.fillStyle=LV.wall;ctx.fillRect(boss.x-52,boss.y-boss.r-20,104*(boss.hp/boss.maxhp),8);noNeon();}
 
-  for(const o of orbs){neon('#37f6ff',14);ctx.fillStyle='#37f6ff';ctx.beginPath();ctx.arc(o.x,o.y,o.r,0,7);ctx.fill();
-    ctx.strokeStyle='#ffffff';ctx.lineWidth=2;ctx.stroke();noNeon();}
+  for(const o of orbs){ if(o.down>0)continue; neon('#37f6ff',14);ctx.fillStyle='#37f6ff';ctx.beginPath();ctx.arc(o.x,o.y,o.r,0,7);ctx.fill();
+    ctx.strokeStyle='#ffffff';ctx.lineWidth=2;ctx.stroke();
+    ctx.globalAlpha=0.4;ctx.beginPath();ctx.arc(o.x,o.y,o.r+3,0,7);ctx.stroke();ctx.globalAlpha=1;noNeon();}
 
   ctx.save();ctx.translate(player.x,player.y);ctx.rotate(moveAng);
   if(iFrames>0)ctx.globalAlpha=0.5+Math.sin(performance.now()/40)*0.3;
