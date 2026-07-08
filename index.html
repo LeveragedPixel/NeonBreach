@@ -196,7 +196,7 @@
     </div>
     <div class="ctrls">WASD / ARROWS — MOVE &nbsp;·&nbsp; SPACE — DASH<br>
       Collect ◆ Data Cores in runs · spend them on permanent upgrades · clear sectors to go deeper</div>
-    <div id="version" style="margin-top:14px;color:#3a4560;font-size:11px;letter-spacing:1px">v2.4</div>
+    <div id="version" style="margin-top:14px;color:#3a4560;font-size:11px;letter-spacing:1px">v2.7</div>
   </div>
 </div></div>
 
@@ -503,9 +503,26 @@ function openCodex(){
     <div style="font-size:11px;color:#9aa4ba;line-height:1.4">${u.desc}</div></div>`;
   const weapons=UPGRADES.filter(u=>u.kind==='wpn').map(u=>card(u,'WEAPON')).join('');
   const passives=UPGRADES.filter(u=>u.kind==='pas').map(u=>card(u,'PASSIVE')).join('');
+  // cheat sheet: which passives affect which weapons/systems
+  const sheet=[
+    ['🔺 Weapon Power','ALL weapons hit harder (+ drone damage)'],
+    ['🎯 Targeting','Crit chance for ALL weapons'],
+    ['⏱️ Overclock','Faster fire/pulse rate for ALL timed weapons (beam, pulse, mines, discs, turrets, wisps…)'],
+    ['📐 Amplitude','Bigger area weapons: Pulse Nova, Frost Field, Black Hole, Beam width, Orbital Blade'],
+    ['🚀 Muzzle Velocity','Faster projectiles: Bolt Array, Scatter, Turret shots'],
+    ['🧲 Tractor Field','Wider XP/pickup magnet (utility)'],
+    ['📊 Data Sync','More XP per gem (utility)'],
+    ['🍀 Fortune','Better drop luck (utility)'],
+    ['🏃 Servo Boost','Player move speed (defense/mobility)'],
+    ['🧱 Plating / 🌀 Deflector','Damage reduction / dodge (survivability)'],
+  ];
+  const sheetHtml = '<div style="width:100%;max-width:680px;text-align:left;background:rgba(16,24,39,0.9);border:1px solid #22304a;border-radius:12px;padding:14px 18px;margin-top:6px">'
+    + sheet.map(([k,v])=>`<div style="margin:5px 0;font-size:12px;color:#cfe6ff"><b style="color:#ffd86c">${k}</b> <span style="color:#9aa4ba">— ${v}</span></div>`).join('')
+    + '</div>';
   wrap.innerHTML =
     '<div style="width:100%;text-align:center;color:#6fe9ff;letter-spacing:2px;font-size:13px;margin:2px 0 8px">WEAPONS — evolve at max level</div>'+weapons+
-    '<div style="width:100%;text-align:center;color:#ffd86c;letter-spacing:2px;font-size:13px;margin:14px 0 8px">PASSIVES — stat boosts</div>'+passives;
+    '<div style="width:100%;text-align:center;color:#ffd86c;letter-spacing:2px;font-size:13px;margin:14px 0 8px">PASSIVES — stat boosts</div>'+passives+
+    '<div style="width:100%;text-align:center;color:#a0ffcf;letter-spacing:2px;font-size:13px;margin:16px 0 8px">📖 CHEAT SHEET — what buffs affect what</div>'+sheetHtml;
   document.getElementById('codex').style.display='flex';
 }
 function closeCodex(){ document.getElementById('codex').style.display='none'; }
@@ -532,9 +549,11 @@ function startLevel(keepUpgrades){
   LV=LEVELS[Math.min(levelIndex,LEVELS.length-1)];
   document.getElementById('levelName').textContent=LV.name;
   // reset per-level entity state but keep in-run upgrades if advancing
-  const carry = keepUpgrades ? {stats:JSON.parse(JSON.stringify(stats)), orbCount:stats.orbCount, hp:player.hp, maxhp:player.maxhp, speed:player.speed} : null;
+  const carry = keepUpgrades ? {stats:JSON.parse(JSON.stringify(stats)), orbCount:stats.orbCount, hp:player.hp, maxhp:player.maxhp, speed:player.speed,
+    pickCounts:JSON.parse(JSON.stringify(pickCounts)), totalKills:kills, charLevel:level} : null;
   reset();
   if(carry){ stats=carry.stats; player.maxhp=carry.maxhp; player.hp=carry.maxhp; player.speed=carry.speed;
+    pickCounts=carry.pickCounts; kills=carry.totalKills; level=carry.charLevel;
     // rebuild orbs to match carried count
     orbs=[]; for(let i=0;i<carry.orbCount;i++) addOrb(); }
   running=true; lastTime=performance.now();
@@ -767,49 +786,45 @@ function updateMines(dt){
   mines=mines.filter(m=>!m.dead);
 }
 
-// Beam Lance: continuous laser(s) at nearest enemies; more beams in different directions as it levels
+// Beam Lance: extends out, SWEEPS around you like a radar arm, then retracts. Arc grows with level.
 function updateBeam(dt){
   if(stats.beamLvl<=0)return;
-  const count=1+Math.floor(stats.beamLvl/2)+evoBonus;
-  const spinning = stats.beamLvl>=5;           // only becomes a spinning array at high level
   const evoBonus = stats.evoBeam?2:0;          // Prism Storm: +2 beams
   beamTimer-=dt;
-  // fire a fresh pulse on a timer (scales with cooldown). Each pulse extends then retracts.
+  // fire a fresh pulse on a timer (attack speed / cooldown scales the rate)
   if(beamTimer<=0 && (!beams2.length || beams2.every(b=>b.done))){
-    beamTimer=Math.max(0.7,1.7-stats.beamLvl*0.09)*stats.cdr;   // attack-speed / cooldown scales it
+    beamTimer=Math.max(0.7,1.7-stats.beamLvl*0.09)*stats.cdr;
     beams2=[];
-    if(spinning){
-      // high level: rotating array of beams sweeping around you
-      beamSpin=(beamSpin||0);
-      for(let i=0;i<count;i++){ beams2.push({ang:beamSpin+i*(Math.PI*2/count),t:0,done:false,hitSet:new Set()}); }
-      beamSpin+=0.6;
-    } else {
-      // low level: each beam aims at a distinct nearby enemy (or spreads if not enough targets)
-      const t=allTargets().slice().sort((a,b)=>((a.x-player.x)**2+(a.y-player.y)**2)-((b.x-player.x)**2+(b.y-player.y)**2));
-      for(let i=0;i<count;i++){
-        let ang;
-        if(t[i]) ang=Math.atan2(t[i].y-player.y,t[i].x-player.x);
-        else if(t[0]) ang=Math.atan2(t[0].y-player.y,t[0].x-player.x)+i*0.5;
-        else ang=(moveAng||0)+i*(Math.PI*2/count);
-        beams2.push({ang,t:0,done:false,hitSet:new Set()});
-      }
+    const count=1+Math.floor(stats.beamLvl/2)+evoBonus;   // beam count (+evo bonus)
+    // sweep arc grows with level: ~1/4 turn at Lv1 up to a full rotation at high level
+    const sweep=Math.min(Math.PI*2, (Math.PI/2)*(1+(stats.beamLvl-1)*0.35)) * (stats.evoBeam?1.4:1);
+    // aim the sweep to START at the nearest enemy so it sweeps across the pack
+    const t=allTargets().slice().sort((a,b)=>((a.x-player.x)**2+(a.y-player.y)**2)-((b.x-player.x)**2+(b.y-player.y)**2));
+    const startBase = t[0] ? Math.atan2(t[0].y-player.y,t[0].x-player.x) : (moveAng||0);
+    const dir = (Math.random()<0.5?1:-1); // sweep direction alternates for variety
+    for(let i=0;i<count;i++){
+      beams2.push({ang0:startBase+i*(Math.PI*2/count)-sweep/2, sweep, dir, ang:startBase, t:0, done:false, lastHit:{}});
     }
   }
   const maxReach=180+stats.beamLvl*12, dmg=2+stats.beamLvl*0.8;
+  // attack speed also speeds the sweep animation (shorter cdr = faster sweep)
+  const dur=0.7*Math.max(0.5,stats.cdr);
   for(const bm of beams2){ if(bm.done)continue; bm.t+=dt;
-    // extend (0-0.22s) -> hold (0.22-0.40s) -> retract (0.40-0.62s) -> done  (slower so 'out and back' reads clearly)
+    const ext=0.18*Math.max(0.5,stats.cdr), ret=0.18*Math.max(0.5,stats.cdr), hold=dur-ext-ret;
     let reach;
-    if(bm.t<0.22) reach=maxReach*(bm.t/0.22);
-    else if(bm.t<0.40) reach=maxReach;
-    else if(bm.t<0.62) reach=maxReach*(1-(bm.t-0.40)/0.22);
+    if(bm.t<ext) reach=maxReach*(bm.t/ext);                       // extend
+    else if(bm.t<ext+hold){ reach=maxReach;                        // hold + SWEEP
+      const p=(bm.t-ext)/hold; bm.ang = bm.ang0 + bm.dir*bm.sweep*p; }
+    else if(bm.t<dur) reach=maxReach*(1-(bm.t-(ext+hold))/ret);   // retract
     else { bm.done=true; continue; }
     bm.reach=reach;
-    // damage each enemy once per pulse (not continuously)
-    for(const e of allTargets()){ if(e.hp<=0||bm.hitSet.has(e))continue;
+    // damage enemies under the beam; re-hittable as the beam sweeps into them (0.15s per-enemy cooldown)
+    for(const e of allTargets()){ if(e.hp<=0)continue;
       const dx=e.x-player.x, dy=e.y-player.y, dist=Math.hypot(dx,dy); if(dist>reach)continue;
       const pa=Math.atan2(dy,dx); let da=pa-bm.ang; while(da>Math.PI)da-=2*Math.PI; while(da<-Math.PI)da+=2*Math.PI;
       if(Math.cos(da)>0 && Math.abs(Math.sin(da))*dist < 14+(stats.area-1)*8){
-        bm.hitSet.add(e); const {dmg:d,crit}=rollDmg(dmg); hurtEnemy(e,d,crit?'#fff':'#7dffff');
+        const key=e.id||(e.id=Math.random()); if((bm.lastHit[key]||0)>performance.now())continue; bm.lastHit[key]=performance.now()+150;
+        const {dmg:d,crit}=rollDmg(dmg); hurtEnemy(e,d,crit?'#fff':'#7dffff');
         if(e===boss){if(boss.hp<=0)defeatBoss();}else if(e.hp<=0)killEnemy(e); } }
   }
   if(beams2.length && beams2.every(b=>b.done)) beams2=[];
